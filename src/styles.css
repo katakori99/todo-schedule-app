@@ -453,12 +453,6 @@ button {
   font-weight: 600;
 }
 
-.markdown-content .katex {
-  color: #171717;
-  font-size: 1.08em;
-  line-height: 1.2;
-}
-
 .markdown-content .katex-display {
   margin: 0.45em 0;
 }
