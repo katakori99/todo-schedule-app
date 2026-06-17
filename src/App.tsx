@@ -381,7 +381,17 @@ function renderMarkdown(markdown: string) {
       "tr",
       "ul",
     ],
-    ALLOWED_ATTR: ["aria-hidden", "class", "encoding", "href", "rel", "target", "title", "xmlns"],
+    ALLOWED_ATTR: [
+      "aria-hidden",
+      "class",
+      "encoding",
+      "href",
+      "rel",
+      "style",
+      "target",
+      "title",
+      "xmlns",
+    ],
     ALLOW_DATA_ATTR: false,
   });
 }
