@@ -985,6 +985,11 @@ button {
   grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
+.composer-leading {
+  align-self: center;
+  display: inline-flex;
+}
+
 .composer-leading:empty {
   display: none;
 }
@@ -1035,6 +1040,7 @@ button {
 .composer-actions {
   display: grid;
   grid-auto-flow: column;
+  align-self: center;
   align-items: center;
   gap: 7px;
 }
