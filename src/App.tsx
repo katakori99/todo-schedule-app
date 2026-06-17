@@ -655,6 +655,17 @@ function clearPasswordRecoveryMarkerFromUrl() {
 const initialAuthRedirectError =
   typeof window === "undefined" ? undefined : readAuthRedirectError();
 
+function shouldSubmitTextareaWithEnter() {
+  if (typeof window === "undefined") {
+    return true;
+  }
+
+  return !(
+    window.matchMedia("(pointer: coarse)").matches ||
+    window.navigator.maxTouchPoints > 0
+  );
+}
+
 function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (mode: Mode) => void }) {
   return (
     <div className="mode-switch-wrap" aria-label="機能切り替え">
@@ -709,6 +720,7 @@ function Composer({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const hasText = textFromMarkdown(markdown).length > 0;
+  const enterSubmits = shouldSubmitTextareaWithEnter();
 
   const focusEditor = () => {
     editorRef.current?.focus();
@@ -776,7 +788,7 @@ function Composer({
       return;
     }
 
-    if (event.key === "Enter" && !event.shiftKey) {
+    if (enterSubmits && event.key === "Enter" && !event.shiftKey) {
       if (isImeComposing) {
         return;
       }
@@ -889,6 +901,7 @@ function MarkdownEditForm({
   const [markdown, setMarkdown] = useState(initialValue);
   const [isSaving, setIsSaving] = useState(false);
   const canSave = textFromMarkdown(markdown.trim()).length > 0 && !isSaving;
+  const enterSaves = shouldSubmitTextareaWithEnter();
 
   useEffect(() => {
     requestAnimationFrame(() => editorRef.current?.focus());
@@ -915,7 +928,7 @@ function MarkdownEditForm({
       isComposingRef.current || nativeEvent.isComposing || nativeEvent.keyCode === 229;
     const isImeSettling = Date.now() < ignoreSubmitUntilRef.current;
 
-    if (event.key === "Enter" && !event.shiftKey) {
+    if (enterSaves && event.key === "Enter" && !event.shiftKey) {
       if (isImeComposing) {
         return;
       }
