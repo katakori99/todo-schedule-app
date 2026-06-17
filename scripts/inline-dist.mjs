@@ -12,7 +12,11 @@ html = html.replace(
   /<link rel="stylesheet" crossorigin href="([^"]+)">/,
   (_, href) => {
     const cssPath = join(distDir, href.replace(/^\.\//, ""));
-    const css = readFileSync(cssPath, "utf8");
+    const cssAssetDir = dirname(href.replace(/^\.\//, ""));
+    const css = readFileSync(cssPath, "utf8").replace(
+      /url\((["']?)\.\/([^)"']+\.(?:woff2?|ttf))\1\)/g,
+      (_match, quote, asset) => `url(${quote}./${cssAssetDir}/${asset}${quote})`,
+    );
     return `<style>\n${css}\n</style>`;
   },
 );
