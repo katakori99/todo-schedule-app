@@ -618,6 +618,39 @@ function clearAuthRedirectErrorFromUrl() {
   window.history.replaceState(null, "", window.location.pathname);
 }
 
+function isPasswordRecoveryUrl() {
+  const searchParams = new URLSearchParams(window.location.search);
+  if (searchParams.get("auth_flow") === "password-recovery") {
+    return true;
+  }
+
+  const hash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : "";
+  if (!hash) {
+    return false;
+  }
+
+  const hashParams = new URLSearchParams(hash);
+  return (
+    hashParams.get("type") === "recovery" ||
+    hashParams.get("auth_flow") === "password-recovery"
+  );
+}
+
+function clearPasswordRecoveryMarkerFromUrl() {
+  const searchParams = new URLSearchParams(window.location.search);
+  if (!searchParams.has("auth_flow")) {
+    return;
+  }
+
+  searchParams.delete("auth_flow");
+  const nextSearch = searchParams.toString();
+  window.history.replaceState(
+    null,
+    "",
+    `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`,
+  );
+}
+
 const initialAuthRedirectError =
   typeof window === "undefined" ? undefined : readAuthRedirectError();
 
@@ -1634,7 +1667,13 @@ export default function App() {
       }
 
       setSession(data.session);
-      setAppStatus(data.session ? "loading-data" : "signed-out");
+      setAppStatus(
+        data.session
+          ? isPasswordRecoveryUrl()
+            ? "password-recovery"
+            : "loading-data"
+          : "signed-out",
+      );
     });
 
     const {
@@ -1644,7 +1683,7 @@ export default function App() {
       setAuthMessage(undefined);
       setSaveError(undefined);
 
-      if (event === "PASSWORD_RECOVERY") {
+      if (event === "PASSWORD_RECOVERY" || (nextSession && isPasswordRecoveryUrl())) {
         setAuthError(undefined);
         setAppStatus("password-recovery");
         return;
@@ -1668,10 +1707,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (session?.user) {
+    if (appStatus !== "password-recovery" && session?.user) {
       void loadCloudData(session.user);
     }
-  }, [loadCloudData, session?.user]);
+  }, [appStatus, loadCloudData, session?.user]);
 
   const signInWithPassword = async (email: string, password: string) => {
     if (!supabase) {
@@ -1744,7 +1783,7 @@ export default function App() {
     setAuthMessage(undefined);
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: window.location.origin,
+      redirectTo: `${window.location.origin}/?auth_flow=password-recovery`,
     });
 
     setIsAuthBusy(false);
@@ -1777,6 +1816,7 @@ export default function App() {
     }
 
     setAuthMessage("パスワードを更新しました。");
+    clearPasswordRecoveryMarkerFromUrl();
     setAppStatus(session?.user ? "loading-data" : "signed-out");
   };
 
