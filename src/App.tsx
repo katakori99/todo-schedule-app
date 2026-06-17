@@ -1304,7 +1304,7 @@ function LoginView({
     <main className="auth-screen" aria-label="ログイン">
       <form className="auth-panel" onSubmit={handleSubmit}>
         <div className="auth-heading">
-          <span>v1.3</span>
+          <span>v2.0</span>
           <h1>メールでログイン</h1>
         </div>
         <label className="auth-field">
