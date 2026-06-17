@@ -456,18 +456,11 @@ button {
 .markdown-content .katex {
   color: #171717;
   font-size: 1.08em;
-  font-weight: 400;
   line-height: 1.2;
 }
 
 .markdown-content .katex-display {
   margin: 0.45em 0;
-}
-
-.markdown-content .katex .mathnormal,
-.markdown-content .katex .mathdefault {
-  font-family: KaTeX_Math, "Times New Roman", Times, serif;
-  font-style: italic;
 }
 
 .markdown-edit {
