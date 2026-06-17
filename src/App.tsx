@@ -86,7 +86,14 @@ type ScheduleError = {
   key: number;
 };
 
-type AppStatus = "checking-auth" | "signed-out" | "loading-data" | "ready" | "error";
+type AppStatus =
+  | "checking-auth"
+  | "signed-out"
+  | "password-recovery"
+  | "loading-data"
+  | "ready"
+  | "error";
+type AuthMode = "sign-in" | "sign-up";
 
 type TodoRow = {
   id: string;
@@ -586,7 +593,7 @@ function readAuthRedirectError() {
     normalized.includes("expired") ||
     normalized.includes("invalid")
   ) {
-    return "ログインリンクが期限切れ、または既に使用済みです。新しいリンクを1回だけ送信して、届いた最新のリンクを開いてください。";
+    return "認証リンクが期限切れ、または既に使用済みです。必要ならパスワード再設定をもう一度行ってください。";
   }
 
   return `ログインできませんでした: ${description || errorCode || error}`;
@@ -1294,20 +1301,32 @@ function ScheduleItemBlock({
 
 function LoginView({
   error,
-  isSending,
+  isBusy,
   message,
-  onSendLink,
+  onResetPassword,
+  onSignIn,
+  onSignUp,
 }: {
   error?: string;
-  isSending: boolean;
+  isBusy: boolean;
   message?: string;
-  onSendLink: (email: string) => Promise<void>;
+  onResetPassword: (email: string) => Promise<void>;
+  onSignIn: (email: string, password: string) => Promise<void>;
+  onSignUp: (email: string, password: string) => Promise<void>;
 }) {
   const [email, setEmail] = useState(DEFAULT_LOGIN_EMAIL);
+  const [password, setPassword] = useState("");
+  const [mode, setMode] = useState<AuthMode>("sign-in");
+  const canSubmit = email.trim().length > 0 && password.length >= 6 && !isBusy;
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    void onSendLink(email.trim());
+    const nextEmail = email.trim();
+    if (mode === "sign-up") {
+      void onSignUp(nextEmail, password);
+      return;
+    }
+    void onSignIn(nextEmail, password);
   };
 
   return (
@@ -1315,7 +1334,7 @@ function LoginView({
       <form className="auth-panel" onSubmit={handleSubmit}>
         <div className="auth-heading">
           <span>v2.0</span>
-          <h1>メールでログイン</h1>
+          <h1>{mode === "sign-up" ? "アカウント作成" : "ログイン"}</h1>
         </div>
         <label className="auth-field">
           <span>メールアドレス</span>
@@ -1328,11 +1347,114 @@ function LoginView({
             required
           />
         </label>
-        <button type="submit" className="auth-submit" disabled={isSending || !email.trim()}>
-          {isSending ? "送信中" : "ログインリンクを送信"}
+        <label className="auth-field">
+          <span>パスワード</span>
+          <input
+            type="password"
+            value={password}
+            autoComplete={mode === "sign-up" ? "new-password" : "current-password"}
+            minLength={6}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="6文字以上"
+            required
+          />
+        </label>
+        <button type="submit" className="auth-submit" disabled={!canSubmit}>
+          {isBusy ? "処理中" : mode === "sign-up" ? "作成する" : "ログイン"}
+        </button>
+        <div className="auth-actions">
+          <button
+            type="button"
+            className="auth-text-button"
+            disabled={isBusy}
+            onClick={() => {
+              setMode((current) => (current === "sign-in" ? "sign-up" : "sign-in"));
+            }}
+          >
+            {mode === "sign-up" ? "ログインに戻る" : "初回登録"}
+          </button>
+          <button
+            type="button"
+            className="auth-text-button"
+            disabled={isBusy || !email.trim()}
+            onClick={() => void onResetPassword(email.trim())}
+          >
+            パスワード再設定
+          </button>
+        </div>
+        <div className="auth-message" aria-live="polite">
+          {error || message || "PWA内でログインできます。初回はアカウント作成を使ってください。"}
+        </div>
+      </form>
+    </main>
+  );
+}
+
+function PasswordRecoveryView({
+  error,
+  isBusy,
+  message,
+  onSignOut,
+  onUpdatePassword,
+}: {
+  error?: string;
+  isBusy: boolean;
+  message?: string;
+  onSignOut: () => void;
+  onUpdatePassword: (password: string) => Promise<void>;
+}) {
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const canSubmit = password.length >= 6 && password === confirmPassword && !isBusy;
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void onUpdatePassword(password);
+  };
+
+  return (
+    <main className="auth-screen" aria-label="パスワード再設定">
+      <form className="auth-panel" onSubmit={handleSubmit}>
+        <div className="auth-heading">
+          <span>v2.0</span>
+          <h1>パスワード再設定</h1>
+        </div>
+        <label className="auth-field">
+          <span>新しいパスワード</span>
+          <input
+            type="password"
+            value={password}
+            autoComplete="new-password"
+            minLength={6}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="6文字以上"
+            required
+          />
+        </label>
+        <label className="auth-field">
+          <span>確認</span>
+          <input
+            type="password"
+            value={confirmPassword}
+            autoComplete="new-password"
+            minLength={6}
+            onChange={(event) => setConfirmPassword(event.target.value)}
+            placeholder="もう一度入力"
+            required
+          />
+        </label>
+        <button type="submit" className="auth-submit" disabled={!canSubmit}>
+          {isBusy ? "更新中" : "更新する"}
+        </button>
+        <button type="button" className="secondary-button" disabled={isBusy} onClick={onSignOut}>
+          ログインに戻る
         </button>
         <div className="auth-message" aria-live="polite">
-          {error || message || "Magic Link が届いたら、メール内のリンクを開いてください。"}
+          {error ||
+            message ||
+            (password && confirmPassword && password !== confirmPassword
+              ? "確認用パスワードが一致していません。"
+              : "新しいパスワードを設定してください。")}
         </div>
       </form>
     </main>
@@ -1410,7 +1532,7 @@ export default function App() {
   const [appError, setAppError] = useState<string | undefined>(supabaseConfigError ?? undefined);
   const [authMessage, setAuthMessage] = useState<string | undefined>();
   const [authError, setAuthError] = useState<string | undefined>(initialAuthRedirectError);
-  const [isSendingLink, setIsSendingLink] = useState(false);
+  const [isAuthBusy, setIsAuthBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | undefined>();
 
   useEffect(() => {
@@ -1517,10 +1639,16 @@ export default function App() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
       setSession(nextSession);
       setAuthMessage(undefined);
       setSaveError(undefined);
+
+      if (event === "PASSWORD_RECOVERY") {
+        setAuthError(undefined);
+        setAppStatus("password-recovery");
+        return;
+      }
 
       if (nextSession) {
         setAuthError(undefined);
@@ -1545,31 +1673,111 @@ export default function App() {
     }
   }, [loadCloudData, session?.user]);
 
-  const sendMagicLink = async (email: string) => {
+  const signInWithPassword = async (email: string, password: string) => {
     if (!supabase) {
       setAuthError(supabaseConfigError ?? "Supabase設定を確認してください");
       return;
     }
 
-    setIsSendingLink(true);
+    setIsAuthBusy(true);
     setAuthError(undefined);
     setAuthMessage(undefined);
 
-    const { error } = await supabase.auth.signInWithOtp({
+    const { error } = await supabase.auth.signInWithPassword({
       email,
+      password,
+    });
+
+    setIsAuthBusy(false);
+
+    if (error) {
+      setAuthError(`ログインできませんでした: ${error.message}`);
+      return;
+    }
+  };
+
+  const signUpWithPassword = async (email: string, password: string) => {
+    if (!supabase) {
+      setAuthError(supabaseConfigError ?? "Supabase設定を確認してください");
+      return;
+    }
+
+    setIsAuthBusy(true);
+    setAuthError(undefined);
+    setAuthMessage(undefined);
+
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
       options: {
         emailRedirectTo: window.location.origin,
       },
     });
 
-    setIsSendingLink(false);
+    setIsAuthBusy(false);
 
     if (error) {
-      setAuthError(`ログインリンクを送信できませんでした: ${error.message}`);
+      setAuthError(`アカウントを作成できませんでした: ${error.message}`);
       return;
     }
 
-    setAuthMessage(`${email} にログインリンクを送信しました。メールを確認してください。`);
+    if (data.session) {
+      return;
+    }
+
+    setAuthMessage(`${email} に確認メールを送信しました。メール内のリンクを開いてください。`);
+  };
+
+  const resetPassword = async (email: string) => {
+    if (!supabase) {
+      setAuthError(supabaseConfigError ?? "Supabase設定を確認してください");
+      return;
+    }
+
+    if (!email) {
+      setAuthError("メールアドレスを入力してください。");
+      return;
+    }
+
+    setIsAuthBusy(true);
+    setAuthError(undefined);
+    setAuthMessage(undefined);
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin,
+    });
+
+    setIsAuthBusy(false);
+
+    if (error) {
+      setAuthError(`パスワード再設定メールを送信できませんでした: ${error.message}`);
+      return;
+    }
+
+    setAuthMessage(`${email} にパスワード再設定メールを送信しました。`);
+  };
+
+  const updatePassword = async (password: string) => {
+    if (!supabase) {
+      setAuthError(supabaseConfigError ?? "Supabase設定を確認してください");
+      return;
+    }
+
+    setIsAuthBusy(true);
+    setAuthError(undefined);
+    setAuthMessage(undefined);
+
+    const { error } = await supabase.auth.updateUser({ password });
+
+    setIsAuthBusy(false);
+
+    if (error) {
+      setAuthError(`パスワードを更新できませんでした: ${error.message}`);
+      return;
+    }
+
+    setAuthMessage("パスワードを更新しました。");
+    setAppStatus(session?.user ? "loading-data" : "signed-out");
   };
 
   const signOut = async () => {
@@ -1922,13 +2130,27 @@ export default function App() {
     return <AppStateScreen title="ログイン状態を確認中" />;
   }
 
+  if (appStatus === "password-recovery") {
+    return (
+      <PasswordRecoveryView
+        error={authError}
+        isBusy={isAuthBusy}
+        message={authMessage}
+        onSignOut={() => void signOut()}
+        onUpdatePassword={updatePassword}
+      />
+    );
+  }
+
   if (appStatus === "signed-out" || !session) {
     return (
       <LoginView
         error={authError || appError}
-        isSending={isSendingLink}
+        isBusy={isAuthBusy}
         message={authMessage}
-        onSendLink={sendMagicLink}
+        onResetPassword={resetPassword}
+        onSignIn={signInWithPassword}
+        onSignUp={signUpWithPassword}
       />
     );
   }

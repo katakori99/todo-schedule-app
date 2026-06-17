@@ -872,6 +872,36 @@ button {
   box-shadow: none;
 }
 
+.auth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.auth-text-button {
+  min-height: 34px;
+  padding: 0;
+  background: transparent;
+  color: var(--evergreen-800);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.auth-text-button:hover,
+.auth-text-button:focus-visible {
+  color: var(--evergreen-950);
+  text-decoration: underline;
+  outline: none;
+}
+
+.auth-text-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  text-decoration: none;
+}
+
 .secondary-button {
   border: 1px solid rgba(200, 145, 19, 0.36);
   background: rgba(255, 242, 195, 0.56);
