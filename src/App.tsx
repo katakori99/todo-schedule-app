@@ -1707,7 +1707,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (appStatus !== "password-recovery" && session?.user) {
+    if (appStatus === "loading-data" && session?.user) {
       void loadCloudData(session.user);
     }
   }, [appStatus, loadCloudData, session?.user]);
