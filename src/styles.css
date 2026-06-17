@@ -954,15 +954,15 @@ button {
 }
 
 .account-bar button {
-  min-height: 34px;
-  padding: 0 12px;
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
   border: 1px solid rgba(177, 31, 54, 0.24);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.92);
   color: var(--holly-900);
   cursor: pointer;
-  font-size: 12px;
-  font-weight: 850;
 }
 
 .account-bar button:hover,
@@ -1201,6 +1201,11 @@ button {
     width: min(240px, calc(100vw - 52px));
   }
 
+  .account-bar {
+    top: 14px;
+    right: 14px;
+  }
+
   .list-toolbar {
     align-items: flex-start;
     gap: 10px;
@@ -1296,11 +1301,34 @@ button {
 
 @media (max-width: 560px) {
   :root {
-    --composer-reserve: 304px;
+    --composer-reserve: 196px;
   }
 
   .workspace {
     width: calc(100vw - 18px);
+  }
+
+  .mode-switch {
+    width: min(222px, calc(100vw - 112px));
+  }
+
+  .mode-switch button {
+    gap: 5px;
+    min-height: 37px;
+    font-size: 13px;
+  }
+
+  .account-bar {
+    right: 9px;
+  }
+
+  .account-bar span {
+    display: none;
+  }
+
+  .account-bar button {
+    width: 38px;
+    height: 38px;
   }
 
   .list-toolbar {
@@ -1313,6 +1341,8 @@ button {
 
   .composer-inner {
     grid-template-columns: 1fr;
+    gap: 7px;
+    padding: 7px;
   }
 
   .composer-inner.has-leading {
@@ -1325,6 +1355,32 @@ button {
 
   .composer-actions {
     justify-content: end;
+  }
+
+  .editor-shell {
+    min-height: 48px;
+  }
+
+  .editor {
+    min-height: 48px;
+    max-height: 96px;
+    padding: 10px 11px;
+  }
+
+  .icon-button,
+  .add-button,
+  .duration-button {
+    height: 40px;
+  }
+
+  .icon-button,
+  .add-button {
+    width: 40px;
+  }
+
+  .duration-button {
+    min-width: 54px;
+    padding: 0 7px;
   }
 
   .composer-context {

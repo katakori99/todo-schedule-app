@@ -28,6 +28,7 @@ import {
   Clock3,
   GripVertical,
   ListChecks,
+  LogOut,
   Plus,
   Trash2,
   X,
@@ -689,6 +690,7 @@ function Composer({
   leading,
   placeholder,
   submitLabel = "追加",
+  tools,
   onAdd,
 }: {
   ariaLabel: string;
@@ -697,6 +699,7 @@ function Composer({
   leading?: ReactNode;
   placeholder: string;
   submitLabel?: string;
+  tools?: ReactNode;
   onAdd: (markdown: string) => boolean | Promise<boolean>;
 }) {
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
@@ -829,6 +832,7 @@ function Composer({
           />
         </div>
         <div className="composer-actions">
+          {tools}
           <button
             type="button"
             className="icon-button"
@@ -1538,8 +1542,8 @@ function AccountBar({ message, onSignOut }: { message?: string; onSignOut: () =>
   return (
     <div className="account-bar">
       {message && <span>{message}</span>}
-      <button type="button" onClick={onSignOut}>
-        ログアウト
+      <button type="button" aria-label="ログアウト" title="ログアウト" onClick={onSignOut}>
+        <LogOut size={17} strokeWidth={2.4} />
       </button>
     </div>
   );
@@ -2218,7 +2222,6 @@ export default function App() {
     );
   }
 
-  const scheduleContext = `${formatDayLabel(selectedDate)} ${formatRange(selectedHour, duration)}`;
   const scheduleErrorMessage = scheduleError?.message;
   const composerError = saveError ?? (mode === "schedule" ? scheduleErrorMessage : undefined);
 
@@ -2258,9 +2261,8 @@ export default function App() {
       <Composer
         key={mode}
         ariaLabel={mode === "todo" ? "タスク入力" : "時間割入力"}
-        context={mode === "schedule" ? scheduleContext : undefined}
         error={composerError}
-        leading={
+        tools={
           mode === "schedule" ? (
             <button
               type="button"
