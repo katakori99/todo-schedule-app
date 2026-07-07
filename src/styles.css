@@ -77,8 +77,8 @@ button {
 .mode-switch {
   position: relative;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  width: 246px;
+  grid-template-columns: repeat(3, 1fr);
+  width: 336px;
   padding: 5px;
   border: 1px solid rgba(23, 95, 69, 0.2);
   border-radius: 999px;
@@ -92,7 +92,7 @@ button {
   top: 5px;
   bottom: 5px;
   left: 5px;
-  width: calc(50% - 5px);
+  width: calc((100% - 10px) / 3);
   border-radius: 999px;
   background: var(--evergreen-800);
   box-shadow: 0 10px 20px rgba(23, 95, 69, 0.26);
@@ -102,6 +102,11 @@ button {
 .mode-switch.is-schedule .mode-thumb {
   transform: translateX(100%);
   background: var(--evergreen-900);
+}
+
+.mode-switch.is-note .mode-thumb {
+  transform: translateX(200%);
+  background: var(--evergreen-800);
 }
 
 .mode-switch button {
@@ -130,6 +135,10 @@ button {
   margin: 0 auto;
   padding: 86px 0 var(--composer-reserve);
   overflow: auto;
+}
+
+.mode-note .workspace {
+  padding-bottom: 32px;
 }
 
 .workspace::-webkit-scrollbar {
@@ -781,6 +790,132 @@ button {
   outline: none;
 }
 
+.note-workspace {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 100%;
+}
+
+.note-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 0 0 16px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0));
+  backdrop-filter: blur(4px);
+}
+
+.note-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--evergreen-950);
+  font-size: 16px;
+  font-weight: 850;
+}
+
+.note-title svg {
+  color: var(--evergreen-800);
+}
+
+.note-controls {
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(23, 95, 69, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.note-controls button {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 7px;
+  background: transparent;
+  color: #496459;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 820;
+}
+
+.note-controls button.is-active {
+  background: var(--evergreen-800);
+  color: #ffffff;
+}
+
+.note-controls button:focus-visible {
+  outline: 3px solid rgba(31, 122, 88, 0.18);
+}
+
+.note-save-status {
+  justify-self: end;
+  min-width: 72px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+  text-align: right;
+}
+
+.note-save-status.is-saving {
+  color: var(--gold-700);
+}
+
+.note-save-status.is-saved {
+  color: var(--evergreen-800);
+}
+
+.note-save-status.is-error {
+  color: var(--holly-800);
+}
+
+.note-editor,
+.note-preview {
+  min-height: calc(100vh - 160px);
+  border: 1px solid rgba(23, 95, 69, 0.16);
+  border-left: 4px solid var(--evergreen-700);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 12px 28px rgba(9, 41, 31, 0.07);
+}
+
+.note-editor {
+  width: 100%;
+  padding: 22px 24px;
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 1.7;
+  resize: none;
+  outline: none;
+}
+
+.note-editor:focus {
+  border-color: rgba(31, 122, 88, 0.52);
+  box-shadow:
+    0 12px 28px rgba(9, 41, 31, 0.07),
+    0 0 0 3px rgba(31, 122, 88, 0.12);
+}
+
+.note-editor::placeholder {
+  color: rgba(49, 82, 68, 0.48);
+}
+
+.note-preview {
+  overflow: auto;
+  padding: 24px;
+  color: var(--ink);
+  font-size: 17px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
 .auth-screen {
   display: grid;
   place-items: center;
@@ -1198,7 +1333,7 @@ button {
   }
 
   .mode-switch {
-    width: min(240px, calc(100vw - 52px));
+    width: min(302px, calc(100vw - 94px));
   }
 
   .account-bar {
@@ -1268,6 +1403,31 @@ button {
     font-size: 16px;
   }
 
+  .mode-note .workspace {
+    padding-bottom: 22px;
+  }
+
+  .note-toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .note-save-status {
+    grid-column: 1 / -1;
+    justify-self: start;
+    text-align: left;
+  }
+
+  .note-editor,
+  .note-preview {
+    min-height: calc(100vh - 190px);
+  }
+
+  .note-editor,
+  .note-preview {
+    padding: 18px;
+    font-size: 16px;
+  }
+
   .icon-button,
   .add-button,
   .duration-button {
@@ -1316,6 +1476,10 @@ button {
     gap: 5px;
     min-height: 37px;
     font-size: 13px;
+  }
+
+  .mode-switch button svg {
+    display: none;
   }
 
   .account-bar {
@@ -1385,6 +1549,27 @@ button {
 
   .composer-context {
     max-width: none;
+  }
+
+  .note-toolbar {
+    gap: 8px;
+    padding-bottom: 12px;
+  }
+
+  .note-title {
+    font-size: 15px;
+  }
+
+  .note-controls button {
+    min-height: 32px;
+    padding: 0 9px;
+    font-size: 12px;
+  }
+
+  .note-editor,
+  .note-preview {
+    min-height: calc(100vh - 178px);
+    padding: 15px;
   }
 
   .schedule-grid {

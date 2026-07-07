@@ -26,6 +26,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
+  FileText,
   GripVertical,
   ListChecks,
   LogOut,
@@ -50,7 +51,7 @@ import {
 import { Session, User } from "@supabase/supabase-js";
 import { supabase, supabaseConfigError } from "./lib/supabase";
 
-type Mode = "todo" | "schedule";
+type Mode = "todo" | "schedule" | "note";
 type Duration = 1 | 2 | 3;
 
 type Task = {
@@ -71,6 +72,8 @@ type ScheduleItem = {
   createdAt: number;
   updatedAt: number;
 };
+
+type NoteSaveStatus = "idle" | "saving" | "saved" | "error";
 
 type ViewState = {
   mode: Mode;
@@ -114,6 +117,14 @@ type ScheduleRow = {
   start_hour: number;
   duration_hours: Duration;
   order_index: number;
+  created_at: string;
+  updated_at: string;
+};
+
+type NoteRow = {
+  id: string;
+  user_id: string;
+  content_markdown: string;
   created_at: string;
   updated_at: string;
 };
@@ -420,9 +431,11 @@ function safeReadJson<T>(key: string, fallback: T): T {
 function loadViewState(): ViewState {
   const fallback = defaultViewState();
   const parsed = safeReadJson<Partial<ViewState>>(VIEW_STORAGE_KEY, fallback);
+  const mode: Mode =
+    parsed.mode === "schedule" || parsed.mode === "note" ? parsed.mode : "todo";
 
   return {
-    mode: parsed.mode === "schedule" ? "schedule" : "todo",
+    mode,
     selectedDate: typeof parsed.selectedDate === "string" ? parsed.selectedDate : fallback.selectedDate,
     selectedHour: clampHour(parsed.selectedHour ?? START_HOUR),
     duration: isDuration(parsed.duration) ? parsed.duration : 1,
@@ -552,6 +565,10 @@ function scheduleItemFromRow(row: ScheduleRow): ScheduleItem {
   };
 }
 
+function noteMarkdownFromRow(row: NoteRow | null | undefined) {
+  return row ? row.content_markdown.replace(/\r\n?/g, "\n") : "";
+}
+
 function getErrorMessage(error: unknown, fallback = "処理に失敗しました") {
   if (error instanceof Error && error.message) {
     return error.message;
@@ -669,7 +686,11 @@ function shouldSubmitTextareaWithEnter() {
 function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (mode: Mode) => void }) {
   return (
     <div className="mode-switch-wrap" aria-label="機能切り替え">
-      <div className={`mode-switch ${mode === "schedule" ? "is-schedule" : ""}`}>
+      <div
+        className={`mode-switch ${mode === "schedule" ? "is-schedule" : ""} ${
+          mode === "note" ? "is-note" : ""
+        }`}
+      >
         <span className="mode-thumb" aria-hidden="true" />
         <button
           type="button"
@@ -688,6 +709,15 @@ function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (mode: Mode) => 
         >
           <CalendarDays size={17} strokeWidth={2.4} />
           <span>時間割</span>
+        </button>
+        <button
+          type="button"
+          className={mode === "note" ? "is-active" : ""}
+          aria-pressed={mode === "note"}
+          onClick={() => onChange("note")}
+        >
+          <FileText size={17} strokeWidth={2.4} />
+          <span>Note</span>
         </button>
       </div>
     </div>
@@ -1349,6 +1379,77 @@ function ScheduleItemBlock({
   );
 }
 
+function NoteView({
+  markdown,
+  saveError,
+  saveStatus,
+  updatedAt,
+  onChange,
+}: {
+  markdown: string;
+  saveError?: string;
+  saveStatus: NoteSaveStatus;
+  updatedAt?: number;
+  onChange: (markdown: string) => void;
+}) {
+  const [view, setView] = useState<"edit" | "preview">("edit");
+  const previewHtml = useMemo(() => renderMarkdown(markdown || " "), [markdown]);
+  const statusLabel = saveError
+    ? "保存エラー"
+    : saveStatus === "saving"
+      ? "保存中"
+      : saveStatus === "saved" || updatedAt
+        ? "保存済み"
+        : "未保存";
+
+  return (
+    <main className="workspace note-workspace" aria-label="Note">
+      <div className="note-toolbar">
+        <div className="note-title">
+          <FileText size={18} strokeWidth={2.3} />
+          <span>Note</span>
+        </div>
+        <div className="note-controls" aria-label="Note表示切替">
+          <button
+            type="button"
+            className={view === "edit" ? "is-active" : ""}
+            aria-pressed={view === "edit"}
+            onClick={() => setView("edit")}
+          >
+            編集
+          </button>
+          <button
+            type="button"
+            className={view === "preview" ? "is-active" : ""}
+            aria-pressed={view === "preview"}
+            onClick={() => setView("preview")}
+          >
+            プレビュー
+          </button>
+        </div>
+        <span className={`note-save-status is-${saveError ? "error" : saveStatus}`}>
+          {statusLabel}
+        </span>
+      </div>
+
+      {view === "edit" ? (
+        <textarea
+          className="note-editor"
+          aria-label="Note本文"
+          value={markdown}
+          placeholder="ここにメモを書く"
+          onChange={(event) => onChange(event.target.value)}
+        />
+      ) : (
+        <article
+          className="note-preview markdown-content"
+          dangerouslySetInnerHTML={{ __html: previewHtml }}
+        />
+      )}
+    </main>
+  );
+}
+
 function LoginView({
   error,
   isBusy,
@@ -1572,6 +1673,10 @@ export default function App() {
   const [mode, setMode] = useState<Mode>(initialView.mode);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [scheduleItems, setScheduleItems] = useState<ScheduleItem[]>([]);
+  const [noteMarkdown, setNoteMarkdown] = useState("");
+  const [noteUpdatedAt, setNoteUpdatedAt] = useState<number | undefined>();
+  const [noteSaveStatus, setNoteSaveStatus] = useState<NoteSaveStatus>("idle");
+  const [noteSaveError, setNoteSaveError] = useState<string | undefined>();
   const [selectedDate, setSelectedDate] = useState(initialView.selectedDate);
   const [selectedHour, setSelectedHour] = useState(initialView.selectedHour);
   const [duration, setDuration] = useState<Duration>(initialView.duration);
@@ -1584,6 +1689,7 @@ export default function App() {
   const [authError, setAuthError] = useState<string | undefined>(initialAuthRedirectError);
   const [isAuthBusy, setIsAuthBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | undefined>();
+  const lastSavedNoteRef = useRef("");
 
   useEffect(() => {
     clearAuthRedirectErrorFromUrl();
@@ -1631,7 +1737,7 @@ export default function App() {
     setSaveError(undefined);
 
     try {
-      const [todoResult, scheduleResult] = await Promise.all([
+      const [todoResult, scheduleResult, noteResult] = await Promise.all([
         supabase
           .from("todo_items")
           .select("*")
@@ -1644,6 +1750,11 @@ export default function App() {
           .eq("user_id", user.id)
           .order("date", { ascending: true })
           .order("start_hour", { ascending: true }),
+        supabase
+          .from("notes")
+          .select("*")
+          .eq("user_id", user.id)
+          .maybeSingle(),
       ]);
 
       if (todoResult.error) {
@@ -1654,8 +1765,20 @@ export default function App() {
         throw scheduleResult.error;
       }
 
+      if (noteResult.error) {
+        throw noteResult.error;
+      }
+
+      const loadedNote = noteMarkdownFromRow(noteResult.data as NoteRow | null);
       setTasks(((todoResult.data ?? []) as TodoRow[]).map(taskFromRow));
       setScheduleItems(((scheduleResult.data ?? []) as ScheduleRow[]).map(scheduleItemFromRow));
+      setNoteMarkdown(loadedNote);
+      setNoteUpdatedAt(
+        noteResult.data ? Date.parse((noteResult.data as NoteRow).updated_at) || Date.now() : undefined,
+      );
+      lastSavedNoteRef.current = loadedNote;
+      setNoteSaveStatus(noteResult.data ? "saved" : "idle");
+      setNoteSaveError(undefined);
       setAppStatus("ready");
     } catch (error) {
       setAppStatus("error");
@@ -1714,6 +1837,9 @@ export default function App() {
 
       setTasks([]);
       setScheduleItems([]);
+      setNoteMarkdown("");
+      setNoteUpdatedAt(undefined);
+      lastSavedNoteRef.current = "";
       setAppStatus("signed-out");
     });
 
@@ -1849,10 +1975,73 @@ export default function App() {
     setSession(null);
     setTasks([]);
     setScheduleItems([]);
+    setNoteMarkdown("");
+    setNoteUpdatedAt(undefined);
+    setNoteSaveStatus("idle");
+    setNoteSaveError(undefined);
+    lastSavedNoteRef.current = "";
     setAppStatus("signed-out");
   };
 
   const activeUser = session?.user ?? null;
+  const activeUserId = activeUser?.id;
+
+  const saveNote = useCallback(
+    async (markdown: string) => {
+      if (!supabase || !activeUserId) {
+        setNoteSaveStatus("error");
+        setNoteSaveError("ログイン状態を確認してください");
+        return;
+      }
+
+      setNoteSaveStatus("saving");
+      setNoteSaveError(undefined);
+
+      const { data, error } = await supabase
+        .from("notes")
+        .upsert(
+          {
+            user_id: activeUserId,
+            content_markdown: markdown,
+          },
+          { onConflict: "user_id" },
+        )
+        .select("*")
+        .single();
+
+      if (error || !data) {
+        setNoteSaveStatus("error");
+        setNoteSaveError(`Noteを保存できませんでした: ${error?.message ?? "データが返りませんでした"}`);
+        return;
+      }
+
+      const savedNote = noteMarkdownFromRow(data as NoteRow);
+      lastSavedNoteRef.current = savedNote;
+      setNoteUpdatedAt(Date.parse((data as NoteRow).updated_at) || Date.now());
+      setNoteSaveStatus("saved");
+      setNoteSaveError(undefined);
+    },
+    [activeUserId],
+  );
+
+  useEffect(() => {
+    if (appStatus !== "ready" || !activeUserId) {
+      return;
+    }
+
+    if (noteMarkdown === lastSavedNoteRef.current) {
+      return;
+    }
+
+    setNoteSaveStatus("saving");
+    setNoteSaveError(undefined);
+
+    const timeout = window.setTimeout(() => {
+      void saveNote(noteMarkdown);
+    }, 900);
+
+    return () => window.clearTimeout(timeout);
+  }, [activeUserId, appStatus, noteMarkdown, saveNote]);
 
   const addTask = async (markdown: string) => {
     if (!supabase || !activeUser) {
@@ -2237,12 +2426,13 @@ export default function App() {
 
   const scheduleErrorMessage = scheduleError?.message;
   const composerError = saveError ?? (mode === "schedule" ? scheduleErrorMessage : undefined);
+  const accountMessage = saveError || noteSaveError ? "保存エラー" : undefined;
 
   return (
     <div className={`app-shell mode-${mode}`}>
       <ModeSwitch mode={mode} onChange={setMode} />
       <AccountBar
-        message={saveError ? "保存エラー" : undefined}
+        message={accountMessage}
         onSignOut={() => void signOut()}
       />
 
@@ -2255,7 +2445,7 @@ export default function App() {
           onEdit={editTask}
           onToggle={toggleTask}
         />
-      ) : (
+      ) : mode === "schedule" ? (
         <ScheduleView
           currentSlot={currentSlot}
           duration={duration}
@@ -2269,30 +2459,40 @@ export default function App() {
           onSelectSlot={selectSlot}
           onToday={goToday}
         />
+      ) : (
+        <NoteView
+          markdown={noteMarkdown}
+          saveError={noteSaveError}
+          saveStatus={noteSaveStatus}
+          updatedAt={noteUpdatedAt}
+          onChange={setNoteMarkdown}
+        />
       )}
 
-      <Composer
-        key={mode}
-        ariaLabel={mode === "todo" ? "タスク入力" : "時間割入力"}
-        error={composerError}
-        tools={
-          mode === "schedule" ? (
-            <button
-              type="button"
-              className="duration-button"
-              aria-label={`長さ ${duration}時間`}
-              title="長さ"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={cycleDuration}
-            >
-              <Clock3 size={18} strokeWidth={2.4} />
-              <span>{duration}h</span>
-            </button>
-          ) : undefined
-        }
-        placeholder={mode === "todo" ? "次にやること" : "予定を入力"}
-        onAdd={mode === "todo" ? addTask : addScheduleItem}
-      />
+      {mode !== "note" && (
+        <Composer
+          key={mode}
+          ariaLabel={mode === "todo" ? "タスク入力" : "時間割入力"}
+          error={composerError}
+          tools={
+            mode === "schedule" ? (
+              <button
+                type="button"
+                className="duration-button"
+                aria-label={`長さ ${duration}時間`}
+                title="長さ"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={cycleDuration}
+              >
+                <Clock3 size={18} strokeWidth={2.4} />
+                <span>{duration}h</span>
+              </button>
+            ) : undefined
+          }
+          placeholder={mode === "todo" ? "次にやること" : "予定を入力"}
+          onAdd={mode === "todo" ? addTask : addScheduleItem}
+        />
+      )}
     </div>
   );
 }
