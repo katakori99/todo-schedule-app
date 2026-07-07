@@ -2428,7 +2428,7 @@ export default function App() {
 
   const scheduleErrorMessage = scheduleError?.message;
   const composerError = saveError ?? (mode === "schedule" ? scheduleErrorMessage : undefined);
-  const accountMessage = saveError || noteSaveError ? "保存エラー" : undefined;
+  const accountMessage = saveError || (mode === "note" && noteSaveError) ? "保存エラー" : undefined;
 
   return (
     <div className={`app-shell mode-${mode}`}>
