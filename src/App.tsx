@@ -1765,20 +1765,22 @@ export default function App() {
         throw scheduleResult.error;
       }
 
-      if (noteResult.error) {
-        throw noteResult.error;
-      }
-
-      const loadedNote = noteMarkdownFromRow(noteResult.data as NoteRow | null);
+      const loadedNote = noteResult.error
+        ? ""
+        : noteMarkdownFromRow(noteResult.data as NoteRow | null);
       setTasks(((todoResult.data ?? []) as TodoRow[]).map(taskFromRow));
       setScheduleItems(((scheduleResult.data ?? []) as ScheduleRow[]).map(scheduleItemFromRow));
       setNoteMarkdown(loadedNote);
       setNoteUpdatedAt(
-        noteResult.data ? Date.parse((noteResult.data as NoteRow).updated_at) || Date.now() : undefined,
+        !noteResult.error && noteResult.data
+          ? Date.parse((noteResult.data as NoteRow).updated_at) || Date.now()
+          : undefined,
       );
       lastSavedNoteRef.current = loadedNote;
-      setNoteSaveStatus(noteResult.data ? "saved" : "idle");
-      setNoteSaveError(undefined);
+      setNoteSaveStatus(noteResult.error ? "error" : noteResult.data ? "saved" : "idle");
+      setNoteSaveError(
+        noteResult.error ? `Noteを読み込めませんでした: ${noteResult.error.message}` : undefined,
+      );
       setAppStatus("ready");
     } catch (error) {
       setAppStatus("error");
