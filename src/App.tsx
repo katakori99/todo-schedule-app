@@ -37,6 +37,11 @@ import {
 import MarkdownIt from "markdown-it";
 import type StateBlock from "markdown-it/lib/rules_block/state_block.mjs";
 import type StateInline from "markdown-it/lib/rules_inline/state_inline.mjs";
+import CompactMarkdownEditor from "./CompactMarkdownEditor";
+import {
+  compactMarkdownDraftKey,
+  discardCompactMarkdownDraft,
+} from "./compactDraftStorage";
 import NoteEditor from "./NoteEditor";
 import {
   FormEvent,
@@ -75,6 +80,11 @@ type ScheduleItem = {
 };
 
 type NoteSaveStatus = "idle" | "saving" | "saved" | "error";
+type InlineEditTarget = {
+  id: string;
+  x: number;
+  y: number;
+};
 type StoredNoteDraft = {
   baseMarkdown: string;
   markdown: string;
@@ -990,98 +1000,6 @@ function Composer({
   );
 }
 
-function MarkdownEditForm({
-  ariaLabel,
-  initialValue,
-  onCancel,
-  onSave,
-}: {
-  ariaLabel: string;
-  initialValue: string;
-  onCancel: () => void;
-  onSave: (markdown: string) => boolean | Promise<boolean>;
-}) {
-  const editorRef = useRef<HTMLTextAreaElement | null>(null);
-  const isComposingRef = useRef(false);
-  const ignoreSubmitUntilRef = useRef(0);
-  const [markdown, setMarkdown] = useState(initialValue);
-  const [isSaving, setIsSaving] = useState(false);
-  const canSave = textFromMarkdown(markdown.trim()).length > 0 && !isSaving;
-  const enterSaves = shouldSubmitTextareaWithEnter();
-
-  useEffect(() => {
-    requestAnimationFrame(() => editorRef.current?.focus());
-  }, []);
-
-  const save = async () => {
-    if (!canSave) {
-      editorRef.current?.focus();
-      return;
-    }
-
-    setIsSaving(true);
-    const didSave = await onSave(markdown.trim());
-    setIsSaving(false);
-
-    if (!didSave) {
-      editorRef.current?.focus();
-    }
-  };
-
-  const handleKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
-    const nativeEvent = event.nativeEvent as KeyboardEvent;
-    const isImeComposing =
-      isComposingRef.current || nativeEvent.isComposing || nativeEvent.keyCode === 229;
-    const isImeSettling = Date.now() < ignoreSubmitUntilRef.current;
-
-    if (enterSaves && event.key === "Enter" && !event.shiftKey) {
-      if (isImeComposing) {
-        return;
-      }
-
-      event.preventDefault();
-
-      if (!isImeSettling) {
-        void save();
-      }
-      return;
-    }
-
-    if (event.key === "Escape") {
-      event.preventDefault();
-      onCancel();
-    }
-  };
-
-  return (
-    <div className="markdown-edit">
-      <textarea
-        ref={editorRef}
-        aria-label={ariaLabel}
-        value={markdown}
-        rows={3}
-        onChange={(event) => setMarkdown(event.target.value)}
-        onCompositionStart={() => {
-          isComposingRef.current = true;
-        }}
-        onCompositionEnd={() => {
-          isComposingRef.current = false;
-          ignoreSubmitUntilRef.current = Date.now() + IME_SUBMIT_GUARD_MS;
-        }}
-        onKeyDown={handleKeyDown}
-      />
-      <div className="markdown-edit-actions">
-        <button type="button" onClick={() => void save()} disabled={!canSave}>
-          保存
-        </button>
-        <button type="button" onClick={onCancel} disabled={isSaving}>
-          キャンセル
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function TodoView({
   tasks,
   onClearDone,
@@ -1099,6 +1017,7 @@ function TodoView({
 }) {
   const completedCount = useMemo(() => tasks.filter((task) => task.done).length, [tasks]);
   const activeCount = tasks.length - completedCount;
+  const [editingTask, setEditingTask] = useState<InlineEditTarget | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -1109,6 +1028,12 @@ function TodoView({
       coordinateGetter: sortableKeyboardCoordinates,
     }),
   );
+
+  useEffect(() => {
+    if (editingTask && !tasks.some((task) => task.id === editingTask.id)) {
+      setEditingTask(null);
+    }
+  }, [editingTask, tasks]);
 
   return (
     <main className="workspace todo-workspace" aria-label="タスク一覧">
@@ -1140,9 +1065,14 @@ function TodoView({
               <SortableTask
                 key={task.id}
                 task={task}
+                editTarget={editingTask?.id === task.id ? editingTask : undefined}
+                onBeginEdit={setEditingTask}
                 onEdit={onEdit}
                 onToggle={onToggle}
-                onDelete={onDelete}
+                onDelete={(id) => {
+                  setEditingTask((current) => (current?.id === id ? null : current));
+                  return onDelete(id);
+                }}
               />
             ))}
           </ul>
@@ -1156,16 +1086,21 @@ function TodoView({
 
 function SortableTask({
   task,
+  editTarget,
+  onBeginEdit,
   onEdit,
   onToggle,
   onDelete,
 }: {
   task: Task;
+  editTarget?: InlineEditTarget;
+  onBeginEdit: (target: InlineEditTarget) => void;
   onEdit: (id: string, markdown: string) => boolean | Promise<boolean>;
   onToggle: (id: string) => void | Promise<void>;
   onDelete: (id: string) => void | Promise<void>;
 }) {
-  const [isEditing, setIsEditing] = useState(false);
+  const isEditing = Boolean(editTarget);
+  const draftStorageKey = compactMarkdownDraftKey("todo", task.id);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
     disabled: isEditing,
@@ -1180,7 +1115,9 @@ function SortableTask({
     <li
       ref={setNodeRef}
       style={style}
-      className={`task-row ${task.done ? "is-done" : ""} ${isDragging ? "is-dragging" : ""}`}
+      className={`task-row ${task.done ? "is-done" : ""} ${isDragging ? "is-dragging" : ""} ${
+        isEditing ? "is-editing" : ""
+      }`}
     >
       <button
         className="drag-handle"
@@ -1206,23 +1143,38 @@ function SortableTask({
       </label>
 
       {isEditing ? (
-        <MarkdownEditForm
+        <CompactMarkdownEditor
           ariaLabel="タスクを編集"
-          initialValue={task.markdown}
-          onCancel={() => setIsEditing(false)}
-          onSave={async (markdown) => {
-            const didSave = await onEdit(task.id, markdown);
-            if (didSave) {
-              setIsEditing(false);
-            }
-            return didSave;
-          }}
+          className="task-content"
+          draftStorageKey={draftStorageKey}
+          focusPoint={editTarget}
+          initialMarkdown={task.markdown}
+          onSave={(markdown) => onEdit(task.id, markdown)}
         />
       ) : (
         <div
           className="task-content markdown-content"
-          title="ダブルクリックで編集"
-          onDoubleClick={() => setIsEditing(true)}
+          role="button"
+          tabIndex={0}
+          title="クリックして編集"
+          onClick={(event) =>
+            onBeginEdit({
+              id: task.id,
+              x: event.clientX,
+              y: event.clientY,
+            })
+          }
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              const rect = event.currentTarget.getBoundingClientRect();
+              onBeginEdit({
+                id: task.id,
+                x: rect.left + 8,
+                y: rect.top + rect.height / 2,
+              });
+            }
+          }}
           dangerouslySetInnerHTML={{ __html: task.html }}
         />
       )}
@@ -1232,7 +1184,10 @@ function SortableTask({
         className="delete-button"
         aria-label="削除"
         title="削除"
-        onClick={() => void onDelete(task.id)}
+        onClick={() => {
+          discardCompactMarkdownDraft(draftStorageKey);
+          void onDelete(task.id);
+        }}
       >
         <Trash2 size={18} strokeWidth={2.2} />
       </button>
@@ -1265,11 +1220,18 @@ function ScheduleView({
   onSelectSlot: (date: string, hour: number) => void;
   onToday: () => void;
 }) {
+  const [editingItem, setEditingItem] = useState<InlineEditTarget | null>(null);
   const visibleDays = [
     { date: addDays(selectedDate, -1), tone: "side", label: "前日" },
     { date: selectedDate, tone: "center", label: "選択日" },
     { date: addDays(selectedDate, 1), tone: "side", label: "翌日" },
   ] as const;
+
+  useEffect(() => {
+    if (editingItem && !items.some((item) => item.id === editingItem.id)) {
+      setEditingItem(null);
+    }
+  }, [editingItem, items]);
 
   return (
     <main className="workspace schedule-workspace" aria-label="時間割">
@@ -1299,10 +1261,12 @@ function ScheduleView({
             error={error}
             items={items.filter((item) => item.date === day.date)}
             label={day.label}
+            editingItem={editingItem}
             selectedDate={selectedDate}
             selectedHour={selectedHour}
             tone={day.tone}
             onDelete={onDelete}
+            onBeginEdit={setEditingItem}
             onEdit={onEdit}
             onSelectSlot={onSelectSlot}
           />
@@ -1319,9 +1283,11 @@ function ScheduleDay({
   error,
   items,
   label,
+  editingItem,
   selectedDate,
   selectedHour,
   tone,
+  onBeginEdit,
   onDelete,
   onEdit,
   onSelectSlot,
@@ -1332,10 +1298,12 @@ function ScheduleDay({
   error: ScheduleError | null;
   items: ScheduleItem[];
   label: string;
+  editingItem: InlineEditTarget | null;
   selectedDate: string;
   selectedHour: number;
   tone: "side" | "center";
   onDelete: (id: string) => void | Promise<void>;
+  onBeginEdit: (target: InlineEditTarget) => void;
   onEdit: (id: string, markdown: string) => boolean | Promise<boolean>;
   onSelectSlot: (date: string, hour: number) => void;
 }) {
@@ -1385,7 +1353,14 @@ function ScheduleDay({
 
         <div className="schedule-block-layer" aria-hidden={items.length === 0}>
           {sortedItems.map((item) => (
-            <ScheduleItemBlock key={item.id} item={item} onDelete={onDelete} onEdit={onEdit} />
+            <ScheduleItemBlock
+              key={item.id}
+              item={item}
+              editTarget={editingItem?.id === item.id ? editingItem : undefined}
+              onBeginEdit={onBeginEdit}
+              onDelete={onDelete}
+              onEdit={onEdit}
+            />
           ))}
         </div>
       </div>
@@ -1395,14 +1370,19 @@ function ScheduleDay({
 
 function ScheduleItemBlock({
   item,
+  editTarget,
+  onBeginEdit,
   onDelete,
   onEdit,
 }: {
   item: ScheduleItem;
+  editTarget?: InlineEditTarget;
+  onBeginEdit: (target: InlineEditTarget) => void;
   onDelete: (id: string) => void | Promise<void>;
   onEdit: (id: string, markdown: string) => boolean | Promise<boolean>;
 }) {
-  const [isEditing, setIsEditing] = useState(false);
+  const isEditing = Boolean(editTarget);
+  const draftStorageKey = compactMarkdownDraftKey("schedule", item.id);
   const index = item.startHour - START_HOUR;
   const style = {
     top: `calc(${index} * (var(--schedule-slot-height) + var(--schedule-slot-gap)))`,
@@ -1416,27 +1396,42 @@ function ScheduleItemBlock({
       className={`schedule-block ${isEditing ? "is-editing" : ""}`}
       style={style}
       title={formatRange(item.startHour, item.duration)}
-      onDoubleClick={() => setIsEditing(true)}
     >
       {isEditing ? (
-        <MarkdownEditForm
+        <CompactMarkdownEditor
           ariaLabel="予定を編集"
-          initialValue={item.markdown}
-          onCancel={() => setIsEditing(false)}
-          onSave={async (markdown) => {
-            const didSave = await onEdit(item.id, markdown);
-            if (didSave) {
-              setIsEditing(false);
-            }
-            return didSave;
-          }}
+          className="schedule-title"
+          draftStorageKey={draftStorageKey}
+          focusPoint={editTarget}
+          initialMarkdown={item.markdown}
+          onSave={(markdown) => onEdit(item.id, markdown)}
         />
       ) : (
         <>
           <div>
             <div
               className="schedule-title markdown-content"
-              title="ダブルクリックで編集"
+              role="button"
+              tabIndex={0}
+              title="クリックして編集"
+              onClick={(event) =>
+                onBeginEdit({
+                  id: item.id,
+                  x: event.clientX,
+                  y: event.clientY,
+                })
+              }
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  onBeginEdit({
+                    id: item.id,
+                    x: rect.left + 6,
+                    y: rect.top + rect.height / 2,
+                  });
+                }
+              }}
               dangerouslySetInnerHTML={{ __html: item.titleHtml }}
             />
           </div>
@@ -1445,7 +1440,10 @@ function ScheduleItemBlock({
             className="schedule-delete"
             aria-label="予定を削除"
             title="予定を削除"
-            onClick={() => void onDelete(item.id)}
+            onClick={() => {
+              discardCompactMarkdownDraft(draftStorageKey);
+              void onDelete(item.id);
+            }}
           >
             <Trash2 size={16} strokeWidth={2.3} />
           </button>
