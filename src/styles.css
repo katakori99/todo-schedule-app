@@ -495,6 +495,47 @@ button {
   font-weight: 600;
 }
 
+.markdown-content .katex {
+  font-family: KaTeX_Main, "Times New Roman", serif;
+  font-style: normal;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: auto;
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: auto;
+}
+
+.markdown-content .katex .mathnormal {
+  font-family: KaTeX_Math, "Times New Roman", serif;
+  font-style: italic;
+  font-weight: 400;
+}
+
+.markdown-content .katex .mathit {
+  font-family: KaTeX_Main, "Times New Roman", serif;
+  font-style: italic;
+  font-weight: 400;
+}
+
+.markdown-content .katex .mainrm,
+.markdown-content .katex .mathrm {
+  font-family: KaTeX_Main, "Times New Roman", serif;
+  font-style: normal;
+  font-weight: 400;
+}
+
+.markdown-content .katex .mathbf {
+  font-family: KaTeX_Main, "Times New Roman", serif;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.markdown-content .katex .boldsymbol {
+  font-family: KaTeX_Math, "Times New Roman", serif;
+  font-style: italic;
+  font-weight: 700;
+}
+
 .markdown-content .katex-display {
   margin: 0.45em 0;
 }
