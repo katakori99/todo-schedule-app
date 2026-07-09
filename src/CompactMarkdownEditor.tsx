@@ -36,7 +36,7 @@ export default function CompactMarkdownEditor({
   onSave,
 }: CompactMarkdownEditorProps) {
   const initialContentRef = useRef(
-    readCompactMarkdownDraft(draftStorageKey, initialMarkdown),
+    readCompactMarkdownDraft(draftStorageKey, initialMarkdown.trim()),
   );
   const onSaveRef = useRef(onSave);
   const lastSavedRef = useRef(initialMarkdown);
