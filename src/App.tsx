@@ -456,7 +456,7 @@ function loadViewState(): ViewState {
 
   return {
     mode,
-    selectedDate: typeof parsed.selectedDate === "string" ? parsed.selectedDate : fallback.selectedDate,
+    selectedDate: fallback.selectedDate,
     selectedHour: clampHour(parsed.selectedHour ?? START_HOUR),
     duration: isDuration(parsed.duration) ? parsed.duration : 1,
   };
@@ -1221,11 +1221,6 @@ function ScheduleView({
   onToday: () => void;
 }) {
   const [editingItem, setEditingItem] = useState<InlineEditTarget | null>(null);
-  const visibleDays = [
-    { date: addDays(selectedDate, -1), tone: "side", label: "前日" },
-    { date: selectedDate, tone: "center", label: "選択日" },
-    { date: addDays(selectedDate, 1), tone: "side", label: "翌日" },
-  ] as const;
 
   useEffect(() => {
     if (editingItem && !items.some((item) => item.id === editingItem.id)) {
@@ -1252,25 +1247,19 @@ function ScheduleView({
       </div>
 
       <div className="schedule-board">
-        {visibleDays.map((day) => (
-          <ScheduleDay
-            key={day.date}
-            currentSlot={currentSlot}
-            date={day.date}
-            duration={duration}
-            error={error}
-            items={items.filter((item) => item.date === day.date)}
-            label={day.label}
-            editingItem={editingItem}
-            selectedDate={selectedDate}
-            selectedHour={selectedHour}
-            tone={day.tone}
-            onDelete={onDelete}
-            onBeginEdit={setEditingItem}
-            onEdit={onEdit}
-            onSelectSlot={onSelectSlot}
-          />
-        ))}
+        <ScheduleDay
+          currentSlot={currentSlot}
+          date={selectedDate}
+          duration={duration}
+          error={error}
+          items={items.filter((item) => item.date === selectedDate)}
+          editingItem={editingItem}
+          selectedHour={selectedHour}
+          onDelete={onDelete}
+          onBeginEdit={setEditingItem}
+          onEdit={onEdit}
+          onSelectSlot={onSelectSlot}
+        />
       </div>
     </main>
   );
@@ -1282,11 +1271,8 @@ function ScheduleDay({
   duration,
   error,
   items,
-  label,
   editingItem,
-  selectedDate,
   selectedHour,
-  tone,
   onBeginEdit,
   onDelete,
   onEdit,
@@ -1297,11 +1283,8 @@ function ScheduleDay({
   duration: Duration;
   error: ScheduleError | null;
   items: ScheduleItem[];
-  label: string;
   editingItem: InlineEditTarget | null;
-  selectedDate: string;
   selectedHour: number;
-  tone: "side" | "center";
   onDelete: (id: string) => void | Promise<void>;
   onBeginEdit: (target: InlineEditTarget) => void;
   onEdit: (id: string, markdown: string) => boolean | Promise<boolean>;
@@ -1312,18 +1295,16 @@ function ScheduleDay({
 
   return (
     <section
-      className={`schedule-day is-${tone} ${today ? "is-today" : ""}`}
-      aria-label={`${today ? "今日" : label} ${formatDayLabel(date)}`}
+      className={`schedule-day ${today ? "is-today" : ""}`}
+      aria-label={`${today ? "今日 " : ""}${formatDayLabel(date)}`}
     >
       <div className="schedule-grid">
-        {HOURS.map((hour) => {
-          const selected = date === selectedDate && hour === selectedHour;
+        {HOURS.map((hour, index) => {
+          const selected = hour === selectedHour;
           const current = currentSlot.date === date && currentSlot.hour === hour;
           const covered = items.some((item) => isHourCovered(item, hour));
           const blockedPreview =
-            date === selectedDate &&
-            hour >= selectedHour &&
-            hour < Math.min(selectedHour + duration, END_HOUR);
+            hour >= selectedHour && hour < Math.min(selectedHour + duration, END_HOUR);
           const errorSlot =
             error &&
             error.date === date &&
@@ -1344,6 +1325,7 @@ function ScheduleDay({
               ]
                 .filter(Boolean)
                 .join(" ")}
+              style={{ gridRow: index + 1 }}
               onClick={() => onSelectSlot(date, hour)}
             >
               <span>{formatHour(hour)}</span>
@@ -1351,18 +1333,16 @@ function ScheduleDay({
           );
         })}
 
-        <div className="schedule-block-layer" aria-hidden={items.length === 0}>
-          {sortedItems.map((item) => (
-            <ScheduleItemBlock
-              key={item.id}
-              item={item}
-              editTarget={editingItem?.id === item.id ? editingItem : undefined}
-              onBeginEdit={onBeginEdit}
-              onDelete={onDelete}
-              onEdit={onEdit}
-            />
-          ))}
-        </div>
+        {sortedItems.map((item) => (
+          <ScheduleItemBlock
+            key={item.id}
+            item={item}
+            editTarget={editingItem?.id === item.id ? editingItem : undefined}
+            onBeginEdit={onBeginEdit}
+            onDelete={onDelete}
+            onEdit={onEdit}
+          />
+        ))}
       </div>
     </section>
   );
@@ -1385,10 +1365,7 @@ function ScheduleItemBlock({
   const draftStorageKey = compactMarkdownDraftKey("schedule", item.id);
   const index = item.startHour - START_HOUR;
   const style = {
-    top: `calc(${index} * (var(--schedule-slot-height) + var(--schedule-slot-gap)))`,
-    height: `calc(${item.duration} * var(--schedule-slot-height) + ${
-      item.duration - 1
-    } * var(--schedule-slot-gap))`,
+    gridRow: `${index + 1} / span ${item.duration}`,
   };
 
   return (

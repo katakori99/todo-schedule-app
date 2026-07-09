@@ -751,48 +751,37 @@ button {
   justify-content: center;
 }
 
+.schedule-workspace {
+  width: min(1040px, calc(100vw - 64px));
+}
+
 .schedule-board {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr);
-  gap: 18px;
-  align-items: start;
+  width: 100%;
 }
 
 .schedule-day {
-  position: relative;
   min-width: 0;
-  border: 0;
-  border-left: 1px solid var(--line);
-  border-radius: 0;
+  border-bottom: 1px solid var(--line);
   background: #ffffff;
-  box-shadow: none;
-  overflow: hidden;
-}
-
-.schedule-day.is-side {
-  opacity: 0.7;
-}
-
-.schedule-day.is-center {
-  border-left-color: rgba(183, 121, 31, 0.44);
-  background: #ffffff;
-  box-shadow: none;
 }
 
 .schedule-grid {
-  position: relative;
   display: grid;
-  grid-template-rows: repeat(18, var(--schedule-slot-height));
-  gap: 0;
+  grid-template-columns: 76px minmax(0, 1fr);
+  grid-template-rows: repeat(18, minmax(var(--schedule-slot-height), auto));
   padding: 0;
 }
 
 .schedule-slot {
-  display: flex;
-  align-items: start;
+  position: relative;
+  z-index: 0;
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  align-items: stretch;
   min-width: 0;
   min-height: var(--schedule-slot-height);
-  padding: 8px 10px;
+  padding: 0;
   border: 0;
   border-top: 1px solid var(--line);
   border-radius: 0;
@@ -807,6 +796,15 @@ button {
     border-color 140ms ease,
     box-shadow 140ms ease,
     transform 140ms ease;
+}
+
+.schedule-slot > span {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 11px 14px 0 8px;
+  border-right: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
 }
 
 .schedule-slot:hover,
@@ -826,13 +824,13 @@ button {
 }
 
 .schedule-slot.is-selected {
-  box-shadow: inset 3px 0 0 rgba(183, 121, 31, 0.82);
+  box-shadow: inset 3px 0 0 rgba(183, 121, 31, 0.72);
   background: rgba(183, 121, 31, 0.1);
   color: var(--amber-900);
 }
 
 .schedule-slot.is-covered {
-  background: #ffffff;
+  cursor: default;
 }
 
 .schedule-slot.is-error {
@@ -844,56 +842,46 @@ button {
     inset 3px 0 0 rgba(166, 50, 64, 0.8);
 }
 
-.schedule-block-layer {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-
 .schedule-block {
-  position: absolute;
-  right: 8px;
-  left: 58px;
+  position: relative;
+  grid-column: 2;
   z-index: 2;
   display: flex;
   justify-content: space-between;
   align-items: stretch;
   gap: 8px;
   min-width: 0;
-  padding: 8px 8px 8px 10px;
-  border: 1px solid var(--line);
+  margin: 1px 0 0;
+  padding: 11px 46px 11px 16px;
+  border: 0;
   border-left: 3px solid var(--amber-700);
-  border-radius: 6px;
-  background: #ffffff;
-  box-shadow: 0 2px 8px rgba(34, 35, 31, 0.06);
+  border-radius: 0;
+  background: rgba(183, 121, 31, 0.055);
+  box-shadow: none;
   color: var(--ink);
   pointer-events: auto;
+  transition: background 140ms ease;
+}
+
+.schedule-block:hover,
+.schedule-block:focus-within {
+  background: rgba(183, 121, 31, 0.085);
 }
 
 .schedule-block > div {
   min-width: 0;
   flex: 1 1 auto;
-  max-height: 100%;
-  overflow: auto;
-  padding-right: 2px;
-}
-
-.schedule-block > div::-webkit-scrollbar,
-.schedule-title::-webkit-scrollbar {
-  width: 6px;
-}
-
-.schedule-block > div::-webkit-scrollbar-thumb,
-.schedule-title::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background: rgba(23, 95, 69, 0.22);
+  max-height: none;
+  overflow: visible;
+  padding-right: 0;
 }
 
 .schedule-block.is-editing {
   z-index: 8;
   align-items: stretch;
   overflow: visible;
-  box-shadow: 0 4px 14px rgba(34, 35, 31, 0.1);
+  background: rgba(183, 121, 31, 0.09);
+  box-shadow: none;
 }
 
 .schedule-block.is-editing > .compact-markdown-editor {
@@ -902,18 +890,18 @@ button {
 }
 
 .schedule-block .compact-markdown-content {
-  max-height: 100%;
-  overflow: auto;
+  max-height: none;
+  overflow: visible;
 }
 
 .schedule-title {
   min-width: 0;
-  max-height: 100%;
-  overflow: auto;
+  max-height: none;
+  overflow: visible;
   color: var(--ink);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 400;
-  line-height: 1.35;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
@@ -941,6 +929,9 @@ button {
 
 .schedule-title.markdown-content pre {
   padding: 6px 7px;
+  overflow: visible;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .schedule-title .compact-markdown-content p,
@@ -958,9 +949,19 @@ button {
 
 .schedule-title .compact-markdown-content pre {
   padding: 6px 7px;
+  overflow: visible;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.schedule-title code {
+  overflow-wrap: anywhere;
 }
 
 .schedule-delete {
+  position: absolute;
+  top: 8px;
+  right: 9px;
   display: inline-grid;
   flex: 0 0 auto;
   place-items: center;
@@ -970,6 +971,16 @@ button {
   background: transparent;
   color: rgba(34, 35, 31, 0.58);
   cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 140ms ease,
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.schedule-block:hover .schedule-delete,
+.schedule-block:focus-within .schedule-delete {
+  opacity: 1;
 }
 
 .schedule-delete:hover,
@@ -1783,11 +1794,6 @@ button {
     --schedule-slot-height: 58px;
   }
 
-  .schedule-block {
-    left: 58px;
-    right: 8px;
-  }
-
   .composer {
     padding: 12px 14px 14px;
   }
@@ -1872,16 +1878,6 @@ button {
 
   .duration-button span {
     display: inline;
-  }
-}
-
-@media (max-width: 760px) {
-  .schedule-board {
-    grid-template-columns: 1fr;
-  }
-
-  .schedule-day.is-side {
-    display: none;
   }
 }
 
@@ -2027,20 +2023,29 @@ button {
   }
 
   .schedule-grid {
+    grid-template-columns: 56px minmax(0, 1fr);
     padding: 0;
   }
 
-  .schedule-block-layer {
-    inset: 0;
+  .schedule-slot {
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+
+  .schedule-slot > span {
+    padding-right: 9px;
   }
 
   .schedule-block {
-    left: 54px;
-    right: 6px;
-    padding: 8px 8px 8px 10px;
+    padding: 9px 42px 9px 11px;
   }
 
   .schedule-title {
     font-size: 13px;
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .schedule-delete {
+    opacity: 1;
   }
 }
