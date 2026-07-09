@@ -197,9 +197,9 @@ begin
 
   -- Every completion operation locks the root first, then children by UUID.
   perform 1
-  from public.todo_items as root
-  where root.id = v_root_id
-    and root.user_id = v_user_id
+  from public.todo_items as root_item
+  where root_item.id = v_root_id
+    and root_item.user_id = v_user_id
   for update;
 
   perform 1
