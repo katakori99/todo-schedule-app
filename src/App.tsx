@@ -37,6 +37,7 @@ import {
 import MarkdownIt from "markdown-it";
 import type StateBlock from "markdown-it/lib/rules_block/state_block.mjs";
 import type StateInline from "markdown-it/lib/rules_inline/state_inline.mjs";
+import NoteEditor from "./NoteEditor";
 import {
   FormEvent,
   KeyboardEvent as ReactKeyboardEvent,
@@ -74,6 +75,11 @@ type ScheduleItem = {
 };
 
 type NoteSaveStatus = "idle" | "saving" | "saved" | "error";
+type StoredNoteDraft = {
+  baseMarkdown: string;
+  markdown: string;
+  updatedAt: number;
+};
 
 type ViewState = {
   mode: Mode;
@@ -130,7 +136,11 @@ type NoteRow = {
 };
 
 const VIEW_STORAGE_KEY = "cafe-todo.view.v1";
+const NOTE_DRAFT_STORAGE_PREFIX = "todo-schedule.note-draft.v1";
+const NOTE_BACKUP_STORAGE_PREFIX = "todo-schedule.note-backup.v1";
 const DEFAULT_LOGIN_EMAIL = "nameki.seito@gmail.com";
+const USE_LEGACY_NOTE_EDITOR =
+  new URLSearchParams(window.location.search).get("note_editor") === "legacy";
 const IME_SUBMIT_GUARD_MS = 120;
 const START_HOUR = 6;
 const END_HOUR = 24;
@@ -567,6 +577,72 @@ function scheduleItemFromRow(row: ScheduleRow): ScheduleItem {
 
 function noteMarkdownFromRow(row: NoteRow | null | undefined) {
   return row ? row.content_markdown.replace(/\r\n?/g, "\n") : "";
+}
+
+function noteStorageKey(prefix: string, userId: string) {
+  return `${prefix}.${userId}`;
+}
+
+function readStoredNoteDraft(userId: string): StoredNoteDraft | null {
+  try {
+    const value = window.localStorage.getItem(noteStorageKey(NOTE_DRAFT_STORAGE_PREFIX, userId));
+    if (!value) {
+      return null;
+    }
+
+    const parsed = JSON.parse(value) as Partial<StoredNoteDraft>;
+    if (
+      typeof parsed.markdown !== "string" ||
+      typeof parsed.baseMarkdown !== "string" ||
+      typeof parsed.updatedAt !== "number"
+    ) {
+      return null;
+    }
+
+    return {
+      baseMarkdown: parsed.baseMarkdown,
+      markdown: parsed.markdown,
+      updatedAt: parsed.updatedAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function storeNoteDraft(userId: string, draft: StoredNoteDraft) {
+  try {
+    window.localStorage.setItem(
+      noteStorageKey(NOTE_DRAFT_STORAGE_PREFIX, userId),
+      JSON.stringify(draft),
+    );
+  } catch {
+    // Cloud saving remains available when local storage is unavailable.
+  }
+}
+
+function clearStoredNoteDraft(userId: string) {
+  try {
+    window.localStorage.removeItem(noteStorageKey(NOTE_DRAFT_STORAGE_PREFIX, userId));
+  } catch {
+    // Nothing else is required if local storage is unavailable.
+  }
+}
+
+function storeInitialNoteBackup(userId: string, markdown: string) {
+  try {
+    const key = noteStorageKey(NOTE_BACKUP_STORAGE_PREFIX, userId);
+    if (!window.localStorage.getItem(key)) {
+      window.localStorage.setItem(
+        key,
+        JSON.stringify({
+          markdown,
+          createdAt: Date.now(),
+        }),
+      );
+    }
+  } catch {
+    // The backup is supplementary; it must not block editing.
+  }
 }
 
 function getErrorMessage(error: unknown, fallback = "処理に失敗しました") {
@@ -1379,7 +1455,7 @@ function ScheduleItemBlock({
   );
 }
 
-function NoteView({
+function LegacyNoteView({
   markdown,
   saveError,
   saveStatus,
@@ -1403,7 +1479,7 @@ function NoteView({
         : "未保存";
 
   return (
-    <main className="workspace note-workspace" aria-label="Note">
+    <main className="workspace note-workspace is-legacy" aria-label="Note">
       <div className="note-toolbar">
         <div className="note-title">
           <FileText size={18} strokeWidth={2.3} />
@@ -1446,6 +1522,44 @@ function NoteView({
           dangerouslySetInnerHTML={{ __html: previewHtml }}
         />
       )}
+    </main>
+  );
+}
+
+function NoteView({
+  markdown,
+  saveError,
+  saveStatus,
+  updatedAt,
+  onChange,
+}: {
+  markdown: string;
+  saveError?: string;
+  saveStatus: NoteSaveStatus;
+  updatedAt?: number;
+  onChange: (markdown: string) => void;
+}) {
+  const statusLabel = saveError
+    ? "保存エラー"
+    : saveStatus === "saving"
+      ? "保存中"
+      : saveStatus === "saved" || updatedAt
+        ? "保存済み"
+        : "未保存";
+
+  return (
+    <main className="workspace note-workspace" aria-label="Note">
+      <div className="note-toolbar">
+        <div className="note-title">
+          <FileText size={18} strokeWidth={2.3} />
+          <span>Note</span>
+        </div>
+        <span className={`note-save-status is-${saveError ? "error" : saveStatus}`}>
+          {statusLabel}
+        </span>
+      </div>
+
+      <NoteEditor markdown={markdown} onChange={onChange} />
     </main>
   );
 }
@@ -1690,6 +1804,9 @@ export default function App() {
   const [isAuthBusy, setIsAuthBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | undefined>();
   const lastSavedNoteRef = useRef("");
+  const noteCloudLoadedRef = useRef(false);
+  const noteEditRevisionRef = useRef(0);
+  const noteSaveRequestRef = useRef(0);
 
   useEffect(() => {
     clearAuthRedirectErrorFromUrl();
@@ -1765,21 +1882,38 @@ export default function App() {
         throw scheduleResult.error;
       }
 
-      const loadedNote = noteResult.error
+      const cloudNote = noteResult.error
         ? ""
         : noteMarkdownFromRow(noteResult.data as NoteRow | null);
+      const cloudUpdatedAt =
+        !noteResult.error && noteResult.data
+          ? Date.parse((noteResult.data as NoteRow).updated_at) || 0
+          : 0;
+      const storedDraft = readStoredNoteDraft(user.id);
+      const shouldRestoreDraft =
+        !noteResult.error &&
+        storedDraft !== null &&
+        storedDraft.updatedAt > cloudUpdatedAt &&
+        storedDraft.markdown !== cloudNote;
+      const loadedNote = shouldRestoreDraft ? storedDraft.markdown : cloudNote;
+
       setTasks(((todoResult.data ?? []) as TodoRow[]).map(taskFromRow));
       setScheduleItems(((scheduleResult.data ?? []) as ScheduleRow[]).map(scheduleItemFromRow));
       setNoteMarkdown(loadedNote);
-      setNoteUpdatedAt(
-        !noteResult.error && noteResult.data
-          ? Date.parse((noteResult.data as NoteRow).updated_at) || Date.now()
-          : undefined,
+      setNoteUpdatedAt(cloudUpdatedAt || undefined);
+      lastSavedNoteRef.current = cloudNote;
+      noteCloudLoadedRef.current = !noteResult.error;
+      noteEditRevisionRef.current = shouldRestoreDraft ? 1 : 0;
+      noteSaveRequestRef.current = 0;
+      setNoteSaveStatus(
+        noteResult.error ? "error" : shouldRestoreDraft ? "saving" : noteResult.data ? "saved" : "idle",
       );
-      lastSavedNoteRef.current = loadedNote;
-      setNoteSaveStatus(noteResult.error ? "error" : noteResult.data ? "saved" : "idle");
       setNoteSaveError(
-        noteResult.error ? `Noteを読み込めませんでした: ${noteResult.error.message}` : undefined,
+        noteResult.error
+          ? `Noteを読み込めませんでした: ${noteResult.error.message}`
+          : shouldRestoreDraft
+            ? "この端末に残っていた未保存内容を復元しました"
+            : undefined,
       );
       setAppStatus("ready");
     } catch (error) {
@@ -1982,6 +2116,9 @@ export default function App() {
     setNoteSaveStatus("idle");
     setNoteSaveError(undefined);
     lastSavedNoteRef.current = "";
+    noteCloudLoadedRef.current = false;
+    noteEditRevisionRef.current = 0;
+    noteSaveRequestRef.current = 0;
     setAppStatus("signed-out");
   };
 
@@ -1989,13 +2126,21 @@ export default function App() {
   const activeUserId = activeUser?.id;
 
   const saveNote = useCallback(
-    async (markdown: string) => {
+    async (markdown: string, revision: number) => {
       if (!supabase || !activeUserId) {
         setNoteSaveStatus("error");
         setNoteSaveError("ログイン状態を確認してください");
         return;
       }
 
+      if (!noteCloudLoadedRef.current) {
+        setNoteSaveStatus("error");
+        setNoteSaveError("Noteの読み込みに失敗しているため保存を停止しました");
+        return;
+      }
+
+      const requestId = noteSaveRequestRef.current + 1;
+      noteSaveRequestRef.current = requestId;
       setNoteSaveStatus("saving");
       setNoteSaveError(undefined);
 
@@ -2012,13 +2157,28 @@ export default function App() {
         .single();
 
       if (error || !data) {
-        setNoteSaveStatus("error");
-        setNoteSaveError(`Noteを保存できませんでした: ${error?.message ?? "データが返りませんでした"}`);
+        if (
+          requestId === noteSaveRequestRef.current &&
+          revision === noteEditRevisionRef.current
+        ) {
+          setNoteSaveStatus("error");
+          setNoteSaveError(
+            `Noteを保存できませんでした: ${error?.message ?? "データが返りませんでした"}`,
+          );
+        }
+        return;
+      }
+
+      if (
+        requestId !== noteSaveRequestRef.current ||
+        revision !== noteEditRevisionRef.current
+      ) {
         return;
       }
 
       const savedNote = noteMarkdownFromRow(data as NoteRow);
       lastSavedNoteRef.current = savedNote;
+      clearStoredNoteDraft(activeUserId);
       setNoteUpdatedAt(Date.parse((data as NoteRow).updated_at) || Date.now());
       setNoteSaveStatus("saved");
       setNoteSaveError(undefined);
@@ -2039,11 +2199,29 @@ export default function App() {
     setNoteSaveError(undefined);
 
     const timeout = window.setTimeout(() => {
-      void saveNote(noteMarkdown);
+      void saveNote(noteMarkdown, noteEditRevisionRef.current);
     }, 900);
 
     return () => window.clearTimeout(timeout);
   }, [activeUserId, appStatus, noteMarkdown, saveNote]);
+
+  const updateNoteMarkdown = useCallback(
+    (markdown: string) => {
+      if (!activeUserId || markdown === noteMarkdown) {
+        return;
+      }
+
+      noteEditRevisionRef.current += 1;
+      storeInitialNoteBackup(activeUserId, lastSavedNoteRef.current);
+      storeNoteDraft(activeUserId, {
+        baseMarkdown: lastSavedNoteRef.current,
+        markdown,
+        updatedAt: Date.now(),
+      });
+      setNoteMarkdown(markdown);
+    },
+    [activeUserId, noteMarkdown],
+  );
 
   const addTask = async (markdown: string) => {
     if (!supabase || !activeUser) {
@@ -2462,13 +2640,25 @@ export default function App() {
           onToday={goToday}
         />
       ) : (
-        <NoteView
-          markdown={noteMarkdown}
-          saveError={noteSaveError}
-          saveStatus={noteSaveStatus}
-          updatedAt={noteUpdatedAt}
-          onChange={setNoteMarkdown}
-        />
+        <>
+          {USE_LEGACY_NOTE_EDITOR ? (
+            <LegacyNoteView
+              markdown={noteMarkdown}
+              saveError={noteSaveError}
+              saveStatus={noteSaveStatus}
+              updatedAt={noteUpdatedAt}
+              onChange={updateNoteMarkdown}
+            />
+          ) : (
+            <NoteView
+              markdown={noteMarkdown}
+              saveError={noteSaveError}
+              saveStatus={noteSaveStatus}
+              updatedAt={noteUpdatedAt}
+              onChange={updateNoteMarkdown}
+            />
+          )}
+        </>
       )}
 
       {mode !== "note" && (

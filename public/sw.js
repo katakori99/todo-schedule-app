@@ -1,4 +1,4 @@
-const CACHE_NAME = "todo-schedule-app-v2.0.8";
+const CACHE_NAME = "todo-schedule-app-v2.0.9";
 const APP_SHELL = [
   "./",
   "./manifest.webmanifest",
