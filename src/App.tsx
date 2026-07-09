@@ -23,12 +23,14 @@ import {
   Bold,
   CalendarDays,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock3,
   FileText,
   GripVertical,
   ListChecks,
+  ListPlus,
   LogOut,
   Plus,
   Trash2,
@@ -62,9 +64,11 @@ type Duration = 1 | 2 | 3;
 
 type Task = {
   id: string;
+  parentId: string | null;
   markdown: string;
   html: string;
   done: boolean;
+  orderIndex: number;
   createdAt: number;
 };
 
@@ -118,6 +122,7 @@ type AuthMode = "sign-in" | "sign-up";
 type TodoRow = {
   id: string;
   user_id: string;
+  parent_id: string | null;
   content_html: string;
   done: boolean;
   order_index: number;
@@ -562,11 +567,22 @@ function taskFromRow(row: TodoRow): Task {
 
   return {
     id: row.id,
+    parentId: row.parent_id ?? null,
     markdown,
     html: renderMarkdown(markdown),
     done: row.done,
+    orderIndex: row.order_index,
     createdAt: Date.parse(row.created_at) || Date.now(),
   };
+}
+
+function mergeTaskRows(tasks: Task[], rows: TodoRow[]) {
+  const refreshed = new Map(rows.map((row) => [row.id, taskFromRow(row)]));
+  return tasks.map((task) => refreshed.get(task.id) ?? task);
+}
+
+function compareTasks(a: Task, b: Task) {
+  return a.orderIndex - b.orderIndex || a.createdAt - b.createdAt;
 }
 
 function scheduleItemFromRow(row: ScheduleRow): ScheduleItem {
@@ -1002,6 +1018,8 @@ function Composer({
 
 function TodoView({
   tasks,
+  storageScope,
+  onAddChild,
   onClearDone,
   onDelete,
   onDragEnd,
@@ -1009,15 +1027,57 @@ function TodoView({
   onToggle,
 }: {
   tasks: Task[];
+  storageScope: string;
+  onAddChild: (parentId: string, markdown: string) => boolean | Promise<boolean>;
   onClearDone: () => void | Promise<void>;
   onDelete: (id: string) => void | Promise<void>;
   onDragEnd: (event: DragEndEvent) => void;
   onEdit: (id: string, markdown: string) => boolean | Promise<boolean>;
   onToggle: (id: string) => void | Promise<void>;
 }) {
-  const completedCount = useMemo(() => tasks.filter((task) => task.done).length, [tasks]);
-  const activeCount = tasks.length - completedCount;
+  const taskIds = useMemo(() => new Set(tasks.map((task) => task.id)), [tasks]);
+  const rootTasks = useMemo(
+    () =>
+      tasks
+        .filter((task) => task.parentId === null || !taskIds.has(task.parentId))
+        .sort(compareTasks),
+    [taskIds, tasks],
+  );
+  const childrenByParent = useMemo(() => {
+    const grouped = new Map<string, Task[]>();
+    tasks.forEach((task) => {
+      if (!task.parentId || !taskIds.has(task.parentId)) {
+        return;
+      }
+      const siblings = grouped.get(task.parentId) ?? [];
+      siblings.push(task);
+      grouped.set(task.parentId, siblings);
+    });
+    grouped.forEach((children) => children.sort(compareTasks));
+    return grouped;
+  }, [taskIds, tasks]);
+  const actionableTasks = useMemo(
+    () =>
+      rootTasks.flatMap((task) => {
+        const children = childrenByParent.get(task.id) ?? [];
+        return children.length > 0 ? children : [task];
+      }),
+    [childrenByParent, rootTasks],
+  );
+  const completedCount = useMemo(
+    () => actionableTasks.filter((task) => task.done).length,
+    [actionableTasks],
+  );
+  const activeCount = actionableTasks.length - completedCount;
   const [editingTask, setEditingTask] = useState<InlineEditTarget | null>(null);
+  const [addingChildTo, setAddingChildTo] = useState<string | null>(null);
+  const collapseStorageKey = `todo-schedule.collapsed-todos.v1.${storageScope}`;
+  const [collapsedTaskIds, setCollapsedTaskIds] = useState<Set<string>>(() => {
+    const stored = safeReadJson<unknown>(collapseStorageKey, []);
+    return new Set(
+      Array.isArray(stored) ? stored.filter((value): value is string => typeof value === "string") : [],
+    );
+  });
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -1030,16 +1090,61 @@ function TodoView({
   );
 
   useEffect(() => {
+    setCollapsedTaskIds((current) => {
+      const next = new Set(
+        [...current].filter((id) => taskIds.has(id) && (childrenByParent.get(id)?.length ?? 0) > 0),
+      );
+      return next.size === current.size ? current : next;
+    });
+  }, [childrenByParent, taskIds]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(collapseStorageKey, JSON.stringify([...collapsedTaskIds]));
+    } catch {
+      // Collapsing still works for the current session when storage is unavailable.
+    }
+  }, [collapseStorageKey, collapsedTaskIds]);
+
+  useEffect(() => {
     if (editingTask && !tasks.some((task) => task.id === editingTask.id)) {
       setEditingTask(null);
     }
-  }, [editingTask, tasks]);
+    if (addingChildTo && !tasks.some((task) => task.id === addingChildTo)) {
+      setAddingChildTo(null);
+    }
+  }, [addingChildTo, editingTask, tasks]);
+
+  const toggleCollapsed = (id: string) => {
+    setCollapsedTaskIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const beginAddingChild = (id: string) => {
+    setEditingTask(null);
+    setAddingChildTo(id);
+    setCollapsedTaskIds((current) => {
+      if (!current.has(id)) {
+        return current;
+      }
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+  };
 
   return (
     <main className="workspace todo-workspace" aria-label="タスク一覧">
       <div className="list-toolbar">
         <div className="status-strip" aria-live="polite">
-          <span>{tasks.length} 件</span>
+          <span>{actionableTasks.length} 件</span>
           <span>{activeCount} 未完了</span>
           <span>{completedCount} 完了</span>
         </div>
@@ -1059,73 +1164,253 @@ function TodoView({
         modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
         onDragEnd={onDragEnd}
       >
-        <SortableContext items={tasks.map((task) => task.id)} strategy={verticalListSortingStrategy}>
+        <SortableContext
+          items={rootTasks.map((task) => task.id)}
+          strategy={verticalListSortingStrategy}
+        >
           <ul className="task-list">
-            {tasks.map((task) => (
-              <SortableTask
-                key={task.id}
-                task={task}
-                editTarget={editingTask?.id === task.id ? editingTask : undefined}
-                onBeginEdit={setEditingTask}
-                onEdit={onEdit}
-                onToggle={onToggle}
-                onDelete={(id) => {
-                  setEditingTask((current) => (current?.id === id ? null : current));
-                  return onDelete(id);
-                }}
-              />
-            ))}
+            {rootTasks.map((task) => {
+              const children = childrenByParent.get(task.id) ?? [];
+              const expanded = !collapsedTaskIds.has(task.id);
+
+              return (
+                <SortableTaskGroup
+                  key={task.id}
+                  task={task}
+                  children={children}
+                  editingTask={editingTask}
+                  expanded={expanded}
+                  isAddingChild={addingChildTo === task.id}
+                  sensors={sensors}
+                  onAddChild={async (markdown) => {
+                    const didSave = await onAddChild(task.id, markdown);
+                    if (didSave) {
+                      setAddingChildTo(null);
+                    }
+                    return didSave;
+                  }}
+                  onBeginAddChild={() => beginAddingChild(task.id)}
+                  onBeginEdit={setEditingTask}
+                  onCancelAddChild={() => setAddingChildTo(null)}
+                  onDelete={(id) => {
+                    setEditingTask((current) => (current?.id === id ? null : current));
+                    setAddingChildTo((current) => (current === id ? null : current));
+                    return onDelete(id);
+                  }}
+                  onDragEnd={onDragEnd}
+                  onEdit={onEdit}
+                  onToggle={onToggle}
+                  onToggleExpanded={() => toggleCollapsed(task.id)}
+                />
+              );
+            })}
           </ul>
         </SortableContext>
       </DndContext>
 
-      {tasks.length === 0 && <div className="empty-state">未登録</div>}
+      {rootTasks.length === 0 && <div className="empty-state">未登録</div>}
     </main>
   );
 }
 
-function SortableTask({
+type SortableHandle = Pick<
+  ReturnType<typeof useSortable>,
+  "attributes" | "isDragging" | "listeners"
+>;
+
+function SortableTaskGroup({
+  task,
+  children,
+  editingTask,
+  expanded,
+  isAddingChild,
+  sensors,
+  onAddChild,
+  onBeginAddChild,
+  onBeginEdit,
+  onCancelAddChild,
+  onDelete,
+  onDragEnd,
+  onEdit,
+  onToggle,
+  onToggleExpanded,
+}: {
+  task: Task;
+  children: Task[];
+  editingTask: InlineEditTarget | null;
+  expanded: boolean;
+  isAddingChild: boolean;
+  sensors: ReturnType<typeof useSensors>;
+  onAddChild: (markdown: string) => boolean | Promise<boolean>;
+  onBeginAddChild: () => void;
+  onBeginEdit: (target: InlineEditTarget) => void;
+  onCancelAddChild: () => void;
+  onDelete: (id: string) => void | Promise<void>;
+  onDragEnd: (event: DragEndEvent) => void;
+  onEdit: (id: string, markdown: string) => boolean | Promise<boolean>;
+  onToggle: (id: string) => void | Promise<void>;
+  onToggleExpanded: () => void;
+}) {
+  const sortable = useSortable({
+    id: task.id,
+    disabled: editingTask?.id === task.id || isAddingChild,
+  });
+  const style = {
+    transform: CSS.Transform.toString(sortable.transform),
+    transition: sortable.transition,
+  };
+  const completedChildren = children.filter((child) => child.done).length;
+
+  return (
+    <li
+      ref={sortable.setNodeRef}
+      style={style}
+      className={`task-group ${sortable.isDragging ? "is-dragging" : ""}`}
+    >
+      <TaskRow
+        task={task}
+        childCount={children.length}
+        completedChildCount={completedChildren}
+        editTarget={editingTask?.id === task.id ? editingTask : undefined}
+        expanded={expanded}
+        sortable={sortable}
+        onBeginAddChild={onBeginAddChild}
+        onBeginEdit={onBeginEdit}
+        onDelete={onDelete}
+        onEdit={onEdit}
+        onToggle={onToggle}
+        onToggleExpanded={onToggleExpanded}
+      />
+
+      {isAddingChild && (
+        <InlineSubtaskComposer onCancel={onCancelAddChild} onSave={onAddChild} />
+      )}
+
+      {children.length > 0 && expanded && (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
+          onDragEnd={onDragEnd}
+        >
+          <SortableContext
+            items={children.map((child) => child.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            <ul className="subtask-list">
+              {children.map((child) => (
+                <SortableChildTask
+                  key={child.id}
+                  task={child}
+                  editTarget={editingTask?.id === child.id ? editingTask : undefined}
+                  onBeginEdit={onBeginEdit}
+                  onDelete={onDelete}
+                  onEdit={onEdit}
+                  onToggle={onToggle}
+                />
+              ))}
+            </ul>
+          </SortableContext>
+        </DndContext>
+      )}
+    </li>
+  );
+}
+
+function SortableChildTask({
   task,
   editTarget,
   onBeginEdit,
+  onDelete,
   onEdit,
   onToggle,
-  onDelete,
 }: {
   task: Task;
   editTarget?: InlineEditTarget;
   onBeginEdit: (target: InlineEditTarget) => void;
+  onDelete: (id: string) => void | Promise<void>;
   onEdit: (id: string, markdown: string) => boolean | Promise<boolean>;
   onToggle: (id: string) => void | Promise<void>;
-  onDelete: (id: string) => void | Promise<void>;
 }) {
-  const isEditing = Boolean(editTarget);
-  const draftStorageKey = compactMarkdownDraftKey("todo", task.id);
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const sortable = useSortable({
     id: task.id,
-    disabled: isEditing,
+    disabled: Boolean(editTarget),
   });
-
   const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
+    transform: CSS.Transform.toString(sortable.transform),
+    transition: sortable.transition,
   };
 
   return (
-    <li
-      ref={setNodeRef}
-      style={style}
-      className={`task-row ${task.done ? "is-done" : ""} ${isDragging ? "is-dragging" : ""} ${
-        isEditing ? "is-editing" : ""
-      }`}
+    <li ref={sortable.setNodeRef} style={style} className="subtask-item">
+      <TaskRow
+        task={task}
+        childCount={0}
+        completedChildCount={0}
+        editTarget={editTarget}
+        expanded
+        isChild
+        sortable={sortable}
+        onBeginEdit={onBeginEdit}
+        onDelete={onDelete}
+        onEdit={onEdit}
+        onToggle={onToggle}
+      />
+    </li>
+  );
+}
+
+function TaskRow({
+  task,
+  childCount,
+  completedChildCount,
+  editTarget,
+  expanded,
+  isChild = false,
+  sortable,
+  onBeginAddChild,
+  onBeginEdit,
+  onDelete,
+  onEdit,
+  onToggle,
+  onToggleExpanded,
+}: {
+  task: Task;
+  childCount: number;
+  completedChildCount: number;
+  editTarget?: InlineEditTarget;
+  expanded: boolean;
+  isChild?: boolean;
+  sortable: SortableHandle;
+  onBeginAddChild?: () => void;
+  onBeginEdit: (target: InlineEditTarget) => void;
+  onDelete: (id: string) => void | Promise<void>;
+  onEdit: (id: string, markdown: string) => boolean | Promise<boolean>;
+  onToggle: (id: string) => void | Promise<void>;
+  onToggleExpanded?: () => void;
+}) {
+  const isEditing = Boolean(editTarget);
+  const draftStorageKey = compactMarkdownDraftKey("todo", task.id);
+
+  return (
+    <div
+      className={[
+        "task-row",
+        isChild ? "is-child" : "",
+        task.done ? "is-done" : "",
+        sortable.isDragging ? "is-dragging" : "",
+        isEditing ? "is-editing" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
     >
       <button
         className="drag-handle"
         type="button"
         aria-label="並び替え"
         title="並び替え"
-        {...attributes}
-        {...listeners}
+        {...sortable.attributes}
+        {...sortable.listeners}
       >
         <GripVertical size={20} strokeWidth={2.2} />
       </button>
@@ -1142,56 +1427,180 @@ function SortableTask({
         </span>
       </label>
 
-      {isEditing ? (
-        <CompactMarkdownEditor
-          ariaLabel="タスクを編集"
-          className="task-content"
-          draftStorageKey={draftStorageKey}
-          focusPoint={editTarget}
-          initialMarkdown={task.markdown}
-          onSave={(markdown) => onEdit(task.id, markdown)}
-        />
-      ) : (
-        <div
-          className="task-content markdown-content"
-          role="button"
-          tabIndex={0}
-          title="クリックして編集"
-          onClick={(event) =>
-            onBeginEdit({
-              id: task.id,
-              x: event.clientX,
-              y: event.clientY,
-            })
-          }
-          onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              const rect = event.currentTarget.getBoundingClientRect();
+      <div className={`task-main ${childCount > 0 ? "has-children" : ""}`}>
+        {childCount > 0 && (
+          <button
+            type="button"
+            className="disclosure-button"
+            aria-label={expanded ? "子タスクを折りたたむ" : "子タスクを展開"}
+            aria-expanded={expanded}
+            title={expanded ? "折りたたむ" : "展開"}
+            onClick={onToggleExpanded}
+          >
+            {expanded ? (
+              <ChevronDown size={18} strokeWidth={2.2} />
+            ) : (
+              <ChevronRight size={18} strokeWidth={2.2} />
+            )}
+          </button>
+        )}
+
+        {isEditing ? (
+          <CompactMarkdownEditor
+            ariaLabel="タスクを編集"
+            className="task-content"
+            draftStorageKey={draftStorageKey}
+            focusPoint={editTarget}
+            initialMarkdown={task.markdown}
+            onSave={(markdown) => onEdit(task.id, markdown)}
+          />
+        ) : (
+          <div
+            className="task-content markdown-content"
+            role="button"
+            tabIndex={0}
+            title="クリックして編集"
+            onClick={(event) =>
               onBeginEdit({
                 id: task.id,
-                x: rect.left + 8,
-                y: rect.top + rect.height / 2,
-              });
+                x: event.clientX,
+                y: event.clientY,
+              })
             }
-          }}
-          dangerouslySetInnerHTML={{ __html: task.html }}
-        />
-      )}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                const rect = event.currentTarget.getBoundingClientRect();
+                onBeginEdit({
+                  id: task.id,
+                  x: rect.left + 8,
+                  y: rect.top + rect.height / 2,
+                });
+              }
+            }}
+            dangerouslySetInnerHTML={{ __html: task.html }}
+          />
+        )}
 
-      <button
-        type="button"
-        className="delete-button"
-        aria-label="削除"
-        title="削除"
-        onClick={() => {
-          discardCompactMarkdownDraft(draftStorageKey);
-          void onDelete(task.id);
+        {childCount > 0 && (
+          <span className="subtask-progress" aria-label={`${childCount}件中${completedChildCount}件完了`}>
+            {completedChildCount}/{childCount}
+          </span>
+        )}
+      </div>
+
+      <div className="task-actions">
+        {!isChild && (
+          <button
+            type="button"
+            className="subtask-button"
+            aria-label="子タスクを追加"
+            title="子タスクを追加"
+            onClick={onBeginAddChild}
+          >
+            <ListPlus size={18} strokeWidth={2.2} />
+          </button>
+        )}
+        <button
+          type="button"
+          className="delete-button"
+          aria-label="削除"
+          title="削除"
+          onClick={() => {
+            void onDelete(task.id);
+          }}
+        >
+          <Trash2 size={18} strokeWidth={2.2} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function InlineSubtaskComposer({
+  onCancel,
+  onSave,
+}: {
+  onCancel: () => void;
+  onSave: (markdown: string) => boolean | Promise<boolean>;
+}) {
+  const editorRef = useRef<HTMLTextAreaElement | null>(null);
+  const isComposingRef = useRef(false);
+  const ignoreSubmitUntilRef = useRef(0);
+  const [markdown, setMarkdown] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const enterSaves = shouldSubmitTextareaWithEnter();
+  const canSave = textFromMarkdown(markdown.trim()).length > 0 && !isSaving;
+
+  useEffect(() => {
+    requestAnimationFrame(() => editorRef.current?.focus());
+  }, []);
+
+  const save = async () => {
+    if (!canSave) {
+      editorRef.current?.focus();
+      return;
+    }
+
+    setIsSaving(true);
+    const didSave = await onSave(markdown.trim());
+    if (!didSave) {
+      setIsSaving(false);
+      editorRef.current?.focus();
+    }
+  };
+
+  return (
+    <form
+      className="subtask-composer"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void save();
+      }}
+    >
+      <textarea
+        ref={editorRef}
+        aria-label="子タスクを入力"
+        placeholder="子タスクを入力"
+        rows={2}
+        value={markdown}
+        onChange={(event) => setMarkdown(event.target.value)}
+        onCompositionStart={() => {
+          isComposingRef.current = true;
         }}
-      >
-        <Trash2 size={18} strokeWidth={2.2} />
-      </button>
-    </li>
+        onCompositionEnd={() => {
+          isComposingRef.current = false;
+          ignoreSubmitUntilRef.current = Date.now() + IME_SUBMIT_GUARD_MS;
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onCancel();
+            return;
+          }
+
+          if (
+            enterSaves &&
+            event.key === "Enter" &&
+            !event.shiftKey &&
+            !isComposingRef.current &&
+            !event.nativeEvent.isComposing &&
+            Date.now() >= ignoreSubmitUntilRef.current
+          ) {
+            event.preventDefault();
+            void save();
+          }
+        }}
+      />
+      <div className="subtask-composer-actions">
+        <button type="submit" aria-label="子タスクを保存" title="保存" disabled={!canSave}>
+          <Check size={17} strokeWidth={2.4} />
+        </button>
+        <button type="button" aria-label="追加をキャンセル" title="キャンセル" onClick={onCancel}>
+          <X size={17} strokeWidth={2.4} />
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -2210,9 +2619,14 @@ export default function App() {
       .from("todo_items")
       .insert({
         user_id: activeUser.id,
+        parent_id: null,
         content_html: markdown,
         done: false,
-        order_index: tasks.length,
+        order_index:
+          Math.max(
+            -1,
+            ...tasks.filter((task) => task.parentId === null).map((task) => task.orderIndex),
+          ) + 1,
       })
       .select("*")
       .single();
@@ -2223,6 +2637,38 @@ export default function App() {
     }
 
     setTasks((current) => [...current, taskFromRow(data as TodoRow)]);
+    return true;
+  };
+
+  const addChildTask = async (parentId: string, markdown: string) => {
+    if (!supabase || !activeUser) {
+      setSaveError("ログイン状態を確認してください");
+      return false;
+    }
+
+    setSaveError(undefined);
+
+    const { data, error } = await supabase.rpc("add_todo_child", {
+      p_parent_id: parentId,
+      p_content_html: markdown,
+    });
+
+    if (error || !data) {
+      setSaveError(`子タスクを保存できませんでした: ${error?.message ?? "データが返りませんでした"}`);
+      return false;
+    }
+
+    const childRow = (Array.isArray(data) ? data[0] : data) as TodoRow | undefined;
+    if (!childRow) {
+      setSaveError("子タスクを保存できませんでした: データが返りませんでした");
+      return false;
+    }
+
+    const child = taskFromRow(childRow);
+    setTasks((current) => [
+      ...current.map((task) => (task.id === parentId ? { ...task, done: false } : task)),
+      child,
+    ]);
     return true;
   };
 
@@ -2269,20 +2715,41 @@ export default function App() {
 
     const nextDone = !target.done;
     const previous = tasks;
-    setTasks((current) =>
-      current.map((task) => (task.id === id ? { ...task, done: nextDone } : task)),
-    );
+
+    setTasks((current) => {
+      if (target.parentId === null) {
+        return current.map((task) =>
+          task.id === id || (nextDone && task.parentId === id)
+            ? { ...task, done: nextDone }
+            : task,
+        );
+      }
+
+      const siblings = current.filter((task) => task.parentId === target.parentId);
+      const parentDone = siblings.every((task) => (task.id === id ? nextDone : task.done));
+      return current.map((task) =>
+        task.id === id
+          ? { ...task, done: nextDone }
+          : task.id === target.parentId
+            ? { ...task, done: parentDone }
+            : task,
+      );
+    });
     setSaveError(undefined);
 
-    const { error } = await supabase
-      .from("todo_items")
-      .update({ done: nextDone })
-      .eq("id", id)
-      .eq("user_id", activeUser.id);
+    const { data, error } = await supabase.rpc("set_todo_item_done", {
+      p_item_id: id,
+      p_done: nextDone,
+    });
 
     if (error) {
       setTasks(previous);
       setSaveError(`ToDoを更新できませんでした: ${error.message}`);
+      return;
+    }
+
+    if (data) {
+      setTasks((current) => mergeTaskRows(current, data as TodoRow[]));
     }
   };
 
@@ -2292,8 +2759,24 @@ export default function App() {
       return;
     }
 
+    const target = tasks.find((task) => task.id === id);
+    if (!target) {
+      return;
+    }
+
+    const children = tasks.filter((task) => task.parentId === id);
+    if (
+      children.length > 0 &&
+      !window.confirm(
+        `「${textFromMarkdown(target.markdown).slice(0, 80)}」と子タスク${children.length}件を削除しますか？`,
+      )
+    ) {
+      return;
+    }
+
+    const removedIds = new Set([id, ...children.map((child) => child.id)]);
     const previous = tasks;
-    setTasks((current) => current.filter((task) => task.id !== id));
+    setTasks((current) => current.filter((task) => !removedIds.has(task.id)));
     setSaveError(undefined);
 
     const { error } = await supabase
@@ -2305,6 +2788,30 @@ export default function App() {
     if (error) {
       setTasks(previous);
       setSaveError(`ToDoを削除できませんでした: ${error.message}`);
+      return;
+    }
+
+    removedIds.forEach((removedId) => {
+      discardCompactMarkdownDraft(compactMarkdownDraftKey("todo", removedId));
+    });
+
+    if (target.parentId) {
+      const remainingChildren = tasks.filter(
+        (task) => task.parentId === target.parentId && task.id !== target.id,
+      );
+
+      if (remainingChildren.length > 0) {
+        const { data, error: syncError } = await supabase.rpc("set_todo_item_done", {
+          p_item_id: target.parentId,
+          p_done: remainingChildren.every((task) => task.done),
+        });
+
+        if (syncError) {
+          setSaveError(`親タスクの状態を更新できませんでした: ${syncError.message}`);
+        } else if (data) {
+          setTasks((current) => mergeTaskRows(current, data as TodoRow[]));
+        }
+      }
     }
   };
 
@@ -2349,33 +2856,42 @@ export default function App() {
 
     const activeId = String(active.id);
     const overId = String(over.id);
-    const oldIndex = tasks.findIndex((task) => task.id === activeId);
-    const newIndex = tasks.findIndex((task) => task.id === overId);
+    const activeTask = tasks.find((task) => task.id === activeId);
+    const overTask = tasks.find((task) => task.id === overId);
 
+    if (!activeTask || !overTask || activeTask.parentId !== overTask.parentId) {
+      return;
+    }
+
+    const siblings = tasks.filter((task) => task.parentId === activeTask.parentId).sort(compareTasks);
+    const oldIndex = siblings.findIndex((task) => task.id === activeId);
+    const newIndex = siblings.findIndex((task) => task.id === overId);
     if (oldIndex < 0 || newIndex < 0) {
       return;
     }
 
     const previous = tasks;
-    const nextTasks = arrayMove(tasks, oldIndex, newIndex);
-    const client = supabase;
-    setTasks(nextTasks);
+    const nextSiblings = arrayMove(siblings, oldIndex, newIndex).map((task, orderIndex) => ({
+      ...task,
+      orderIndex,
+    }));
+    const reordered = new Map(nextSiblings.map((task) => [task.id, task]));
+    setTasks((current) => current.map((task) => reordered.get(task.id) ?? task));
     setSaveError(undefined);
 
-    const results = await Promise.all(
-      nextTasks.map((task, orderIndex) =>
-        client
-          .from("todo_items")
-          .update({ order_index: orderIndex })
-          .eq("id", task.id)
-          .eq("user_id", activeUser.id),
-      ),
-    );
+    const { data, error } = await supabase.rpc("reorder_todo_siblings", {
+      p_parent_id: activeTask.parentId,
+      p_ordered_ids: nextSiblings.map((task) => task.id),
+    });
 
-    const failed = results.find((result) => result.error);
-    if (failed?.error) {
+    if (error) {
       setTasks(previous);
-      setSaveError(`並び順を保存できませんでした: ${failed.error.message}`);
+      setSaveError(`並び順を保存できませんでした: ${error.message}`);
+      return;
+    }
+
+    if (data) {
+      setTasks((current) => mergeTaskRows(current, data as TodoRow[]));
     }
   };
 
@@ -2594,6 +3110,8 @@ export default function App() {
       {mode === "todo" ? (
         <TodoView
           tasks={tasks}
+          storageScope={session.user.id}
+          onAddChild={addChildTask}
           onClearDone={clearDone}
           onDelete={deleteTask}
           onDragEnd={(event) => void handleTaskDragEnd(event)}
