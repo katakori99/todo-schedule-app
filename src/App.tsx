@@ -1428,23 +1428,6 @@ function TaskRow({
       </label>
 
       <div className={`task-main ${childCount > 0 ? "has-children" : ""}`}>
-        {childCount > 0 && (
-          <button
-            type="button"
-            className="disclosure-button"
-            aria-label={expanded ? "子タスクを折りたたむ" : "子タスクを展開"}
-            aria-expanded={expanded}
-            title={expanded ? "折りたたむ" : "展開"}
-            onClick={onToggleExpanded}
-          >
-            {expanded ? (
-              <ChevronDown size={18} strokeWidth={2.2} />
-            ) : (
-              <ChevronRight size={18} strokeWidth={2.2} />
-            )}
-          </button>
-        )}
-
         {isEditing ? (
           <CompactMarkdownEditor
             ariaLabel="タスクを編集"
@@ -1480,6 +1463,23 @@ function TaskRow({
             }}
             dangerouslySetInnerHTML={{ __html: task.html }}
           />
+        )}
+
+        {childCount > 0 && (
+          <button
+            type="button"
+            className="disclosure-button"
+            aria-label={expanded ? "子タスクを折りたたむ" : "子タスクを展開"}
+            aria-expanded={expanded}
+            title={expanded ? "折りたたむ" : "展開"}
+            onClick={onToggleExpanded}
+          >
+            {expanded ? (
+              <ChevronDown size={18} strokeWidth={2.2} />
+            ) : (
+              <ChevronRight size={18} strokeWidth={2.2} />
+            )}
+          </button>
         )}
 
         {childCount > 0 && (

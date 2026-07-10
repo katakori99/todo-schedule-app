@@ -383,10 +383,21 @@ button {
 }
 
 .task-main.has-children {
-  grid-template-columns: 30px minmax(0, 1fr) auto;
+  display: flex;
+  align-items: center;
+}
+
+.task-main.has-children > .task-content {
+  flex: 0 1 auto;
+  padding-right: 2px;
+}
+
+.task-row.is-editing .task-main.has-children > .task-content {
+  flex: 1 1 auto;
 }
 
 .disclosure-button {
+  flex: 0 0 auto;
   display: inline-grid;
   place-items: center;
   width: 28px;
@@ -405,7 +416,9 @@ button {
 }
 
 .subtask-progress {
+  flex: 0 0 auto;
   align-self: center;
+  margin-left: auto;
   min-width: 34px;
   padding: 0 8px 0 6px;
   color: rgba(34, 35, 31, 0.48);
@@ -454,9 +467,7 @@ button {
 }
 
 .subtask-list {
-  margin-left: 56px;
-  padding-left: 16px;
-  border-left: 1px solid rgba(34, 35, 31, 0.16);
+  margin-left: 24px;
 }
 
 .task-row.is-child {
@@ -476,10 +487,9 @@ button {
   gap: 8px;
   align-items: center;
   min-height: 58px;
-  margin-left: 56px;
-  padding: 7px 4px 7px 16px;
+  margin-left: 108px;
+  padding: 7px 4px 7px 0;
   border-bottom: 1px solid var(--line);
-  border-left: 1px solid rgba(34, 35, 31, 0.16);
   background: rgba(var(--mode-primary-rgb), 0.025);
 }
 
@@ -1957,6 +1967,10 @@ button {
     min-height: 68px;
   }
 
+  .subtask-composer {
+    margin-left: 112px;
+  }
+
   .delete-button,
   .subtask-button {
     opacity: 1;
@@ -2122,7 +2136,7 @@ button {
   }
 
   .task-main.has-children {
-    grid-template-columns: 26px minmax(0, 1fr);
+    flex-wrap: wrap;
   }
 
   .disclosure-button {
@@ -2130,15 +2144,18 @@ button {
   }
 
   .task-main.has-children .subtask-progress {
-    grid-column: 2;
-    justify-self: start;
+    flex-basis: 100%;
+    margin-left: 0;
     padding: 0 0 9px;
   }
 
-  .subtask-list,
+  .subtask-list {
+    margin-left: 16px;
+  }
+
   .subtask-composer {
-    margin-left: 39px;
-    padding-left: 10px;
+    margin-left: 88px;
+    padding-left: 0;
   }
 
   .task-row.is-child {
