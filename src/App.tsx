@@ -1603,24 +1603,32 @@ function TaskRow({
           </button>
         )}
 
-        {childCount > 0 && (
-          <span className="subtask-progress" aria-label={`${childCount}件中${completedChildCount}件完了`}>
-            {completedChildCount}/{childCount}
-          </span>
-        )}
       </div>
 
       <div className="task-actions">
         {!isChild && (
-          <button
-            type="button"
-            className="subtask-button"
-            aria-label="子タスクを追加"
-            title="子タスクを追加"
-            onClick={onBeginAddChild}
-          >
-            <ListPlus size={18} strokeWidth={2.2} />
-          </button>
+          <>
+            <span
+              className={`subtask-progress ${childCount === 0 ? "is-empty" : ""}`}
+              aria-hidden={childCount === 0}
+              aria-label={
+                childCount > 0
+                  ? `${childCount}件中${completedChildCount}件完了`
+                  : undefined
+              }
+            >
+              {childCount > 0 ? `${completedChildCount}/${childCount}` : ""}
+            </span>
+            <button
+              type="button"
+              className="subtask-button"
+              aria-label="子タスクを追加"
+              title="子タスクを追加"
+              onClick={onBeginAddChild}
+            >
+              <ListPlus size={18} strokeWidth={2.2} />
+            </button>
+          </>
         )}
         <button
           type="button"

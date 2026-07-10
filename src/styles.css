@@ -358,7 +358,7 @@ button {
 
 .task-row {
   display: grid;
-  grid-template-columns: 42px 42px minmax(0, 1fr) 76px;
+  grid-template-columns: 42px 42px minmax(0, 1fr) 112px;
   align-items: center;
   min-height: 58px;
   border: 0;
@@ -451,9 +451,8 @@ button {
 .subtask-progress {
   flex: 0 0 auto;
   align-self: center;
-  margin-left: auto;
-  min-width: 34px;
-  padding: 0 8px 0 6px;
+  min-width: 40px;
+  padding: 0 6px;
   color: rgba(34, 35, 31, 0.48);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
@@ -463,11 +462,15 @@ button {
   white-space: nowrap;
 }
 
+.subtask-progress.is-empty {
+  visibility: hidden;
+}
+
 .task-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  width: 76px;
+  width: 112px;
   padding-right: 4px;
 }
 
@@ -2048,7 +2051,7 @@ button {
   }
 
   .task-row {
-    grid-template-columns: 44px 44px minmax(0, 1fr) 76px;
+    grid-template-columns: 44px 44px minmax(0, 1fr) 112px;
     min-height: 68px;
   }
 
@@ -2197,7 +2200,7 @@ button {
   }
 
   .task-row {
-    grid-template-columns: 38px 40px minmax(0, 1fr) 68px;
+    grid-template-columns: 38px 40px minmax(0, 1fr) 104px;
   }
 
   .drag-handle {
@@ -2210,8 +2213,14 @@ button {
   }
 
   .task-actions {
-    width: 68px;
+    width: 104px;
     padding-right: 2px;
+  }
+
+  .subtask-progress {
+    min-width: 36px;
+    padding: 0 4px;
+    font-size: 11px;
   }
 
   .delete-button,
@@ -2220,18 +2229,8 @@ button {
     height: 32px;
   }
 
-  .task-main.has-children {
-    flex-wrap: wrap;
-  }
-
   .disclosure-button {
     width: 25px;
-  }
-
-  .task-main.has-children .subtask-progress {
-    flex-basis: 100%;
-    margin-left: 0;
-    padding: 0 0 9px;
   }
 
   .subtask-list {
