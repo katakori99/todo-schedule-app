@@ -40,6 +40,10 @@
   --schedule-slot-height: 64px;
   --schedule-slot-gap: 0px;
   --composer-reserve: 178px;
+  --motion-fast: 140ms;
+  --motion-standard: 200ms;
+  --motion-layout: 220ms;
+  --motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 * {
@@ -74,6 +78,17 @@ button {
   grid-template-rows: 1fr auto;
   height: 100%;
   background: #ffffff;
+}
+
+.mode-panel {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.mode-panel > .workspace {
+  height: 100%;
 }
 
 .mode-todo {
@@ -127,7 +142,9 @@ button {
   border-radius: 999px;
   background: var(--mode-primary);
   box-shadow: none;
-  transition: transform 180ms ease;
+  transition:
+    transform var(--motion-standard) var(--motion-ease),
+    background-color var(--motion-standard) var(--motion-ease);
 }
 
 .mode-switch.is-schedule .mode-thumb {
@@ -154,7 +171,7 @@ button {
   cursor: pointer;
   font-size: 14px;
   font-weight: 800;
-  transition: color 160ms ease;
+  transition: color var(--motion-fast) var(--motion-ease);
 }
 
 .mode-switch button.is-active {
@@ -311,10 +328,18 @@ button {
 }
 
 .task-list {
+  position: relative;
   display: grid;
   gap: 0;
   margin: 0;
   padding: 0 0 28px;
+  list-style: none;
+}
+
+.task-motion-item {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
   list-style: none;
 }
 
@@ -344,10 +369,10 @@ button {
   box-shadow: none;
   overflow: hidden;
   transition:
-    border-color 160ms ease,
-    box-shadow 160ms ease,
-    opacity 160ms ease,
-    background 160ms ease;
+    border-color var(--motion-fast) var(--motion-ease),
+    box-shadow var(--motion-fast) var(--motion-ease),
+    opacity var(--motion-fast) var(--motion-ease),
+    background var(--motion-fast) var(--motion-ease);
 }
 
 .task-row:hover,
@@ -406,6 +431,14 @@ button {
   background: transparent;
   color: rgba(34, 35, 31, 0.54);
   cursor: pointer;
+}
+
+.disclosure-button svg {
+  transition: transform var(--motion-standard) var(--motion-ease);
+}
+
+.disclosure-button.is-expanded svg {
+  transform: rotate(90deg);
 }
 
 .disclosure-button:hover,
@@ -468,6 +501,10 @@ button {
 
 .subtask-list {
   margin-left: 24px;
+}
+
+.subtask-reveal {
+  min-width: 0;
 }
 
 .task-row.is-child {
@@ -599,10 +636,10 @@ button {
   background: rgba(255, 255, 255, 0.98);
   color: var(--paper-strong);
   transition:
-    background 140ms ease,
-    border-color 140ms ease,
-    transform 140ms ease,
-    color 140ms ease;
+    background var(--motion-fast) var(--motion-ease),
+    border-color var(--motion-fast) var(--motion-ease),
+    transform var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease);
 }
 
 .check-wrap:hover .check-visual,
@@ -616,6 +653,10 @@ button {
   border-color: var(--mode-primary);
   background: var(--mode-primary);
   color: #ffffff;
+}
+
+.check-wrap input:checked + .check-visual svg {
+  animation: check-in var(--motion-standard) var(--motion-ease);
 }
 
 .task-content {
@@ -889,6 +930,9 @@ button {
   text-decoration: line-through;
   text-decoration-thickness: 1.5px;
   text-decoration-color: rgba(139, 30, 45, 0.42);
+  transition:
+    color var(--motion-standard) var(--motion-ease),
+    opacity var(--motion-standard) var(--motion-ease);
 }
 
 .delete-button {
@@ -937,6 +981,11 @@ button {
 }
 
 .schedule-board {
+  position: relative;
+  width: 100%;
+}
+
+.schedule-day-motion {
   width: 100%;
 }
 
@@ -1813,10 +1862,23 @@ button {
   border-radius: 6px;
   cursor: pointer;
   transition:
-    background 140ms ease,
-    color 140ms ease,
-    transform 140ms ease,
-    opacity 140ms ease;
+    background var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease),
+    transform var(--motion-fast) var(--motion-ease),
+    opacity var(--motion-fast) var(--motion-ease);
+}
+
+.icon-button:not(:disabled):active,
+.add-button:not(:disabled):active,
+.duration-button:not(:disabled):active,
+.date-nav-button:not(:disabled):active,
+.today-button:not(:disabled):active,
+.clear-button:not(:disabled):active,
+.account-bar button:not(:disabled):active,
+.subtask-button:not(:disabled):active,
+.delete-button:not(:disabled):active,
+.schedule-delete:not(:disabled):active {
+  transform: scale(0.98);
 }
 
 .icon-button,
@@ -1913,6 +1975,29 @@ button {
 
   75% {
     transform: translateX(-2px);
+  }
+}
+
+@keyframes check-in {
+  from {
+    opacity: 0;
+    transform: scale(0.72);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
 

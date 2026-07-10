@@ -23,7 +23,6 @@ import {
   Bold,
   CalendarDays,
   Check,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock3,
@@ -37,6 +36,15 @@ import {
   X,
 } from "lucide-react";
 import MarkdownIt from "markdown-it";
+import {
+  AnimatePresence,
+  LayoutGroup,
+  LazyMotion,
+  MotionConfig,
+  domAnimation,
+  m,
+  useReducedMotion,
+} from "motion/react";
 import type StateBlock from "markdown-it/lib/rules_block/state_block.mjs";
 import type StateInline from "markdown-it/lib/rules_inline/state_inline.mjs";
 import CompactMarkdownEditor from "./CompactMarkdownEditor";
@@ -160,6 +168,10 @@ const IME_SUBMIT_GUARD_MS = 120;
 const START_HOUR = 6;
 const END_HOUR = 24;
 const HOURS = Array.from({ length: END_HOUR - START_HOUR }, (_, index) => START_HOUR + index);
+const MOTION_EASE = [0.22, 1, 0.36, 1] as const;
+const MOTION_FAST = { duration: 0.14, ease: MOTION_EASE };
+const MOTION_STANDARD = { duration: 0.2, ease: MOTION_EASE };
+const MOTION_LAYOUT = { duration: 0.22, ease: MOTION_EASE };
 const markdownRenderer = new MarkdownIt({
   html: false,
   linkify: true,
@@ -826,6 +838,50 @@ function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (mode: Mode) => 
   );
 }
 
+function ModePanel({
+  children,
+  mode,
+  scrollPositions,
+}: {
+  children: ReactNode;
+  mode: Mode;
+  scrollPositions: Record<Mode, number>;
+}) {
+  const panelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const workspace = panelRef.current?.querySelector<HTMLElement>(".workspace");
+    const storeScrollPosition = () => {
+      if (workspace) {
+        scrollPositions[mode] = workspace.scrollTop;
+      }
+    };
+    const frame = window.requestAnimationFrame(() => {
+      if (workspace) {
+        workspace.scrollTop = scrollPositions[mode];
+      }
+    });
+    workspace?.addEventListener("scroll", storeScrollPosition, { passive: true });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      workspace?.removeEventListener("scroll", storeScrollPosition);
+    };
+  }, [mode, scrollPositions]);
+
+  return (
+    <m.div
+      ref={panelRef}
+      className="mode-panel"
+      initial={{ opacity: 0.72, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={MOTION_STANDARD}
+    >
+      {children}
+    </m.div>
+  );
+}
+
 function Composer({
   ariaLabel,
   context,
@@ -946,8 +1002,11 @@ function Composer({
   };
 
   return (
-    <form
+    <m.form
       className={`composer ${error ? "has-error" : ""}`}
+      initial={{ opacity: 0.86, y: 3 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={MOTION_STANDARD}
       onSubmit={(event) => {
         event.preventDefault();
         void submit();
@@ -1012,7 +1071,7 @@ function Composer({
       <div className="composer-message" aria-live="polite">
         {error}
       </div>
-    </form>
+    </m.form>
   );
 }
 
@@ -1071,6 +1130,7 @@ function TodoView({
   const activeCount = actionableTasks.length - completedCount;
   const [editingTask, setEditingTask] = useState<InlineEditTarget | null>(null);
   const [addingChildTo, setAddingChildTo] = useState<string | null>(null);
+  const [isDraggingTask, setIsDraggingTask] = useState(false);
   const collapseStorageKey = `todo-schedule.collapsed-todos.v1.${storageScope}`;
   const [collapsedTaskIds, setCollapsedTaskIds] = useState<Set<string>>(() => {
     const stored = safeReadJson<unknown>(collapseStorageKey, []);
@@ -1158,55 +1218,74 @@ function TodoView({
         </button>
       </div>
 
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
-        onDragEnd={onDragEnd}
-      >
-        <SortableContext
-          items={rootTasks.map((task) => task.id)}
-          strategy={verticalListSortingStrategy}
+      <LayoutGroup id="todo-list">
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
+          onDragStart={() => setIsDraggingTask(true)}
+          onDragCancel={() => setIsDraggingTask(false)}
+          onDragEnd={(event) => {
+            setIsDraggingTask(false);
+            onDragEnd(event);
+          }}
         >
-          <ul className="task-list">
-            {rootTasks.map((task) => {
-              const children = childrenByParent.get(task.id) ?? [];
-              const expanded = !collapsedTaskIds.has(task.id);
+          <SortableContext
+            items={rootTasks.map((task) => task.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            <ul className="task-list">
+              <AnimatePresence initial={false} mode="popLayout">
+                {rootTasks.map((task) => {
+                  const children = childrenByParent.get(task.id) ?? [];
+                  const expanded = !collapsedTaskIds.has(task.id);
 
-              return (
-                <SortableTaskGroup
-                  key={task.id}
-                  task={task}
-                  children={children}
-                  editingTask={editingTask}
-                  expanded={expanded}
-                  isAddingChild={addingChildTo === task.id}
-                  sensors={sensors}
-                  onAddChild={async (markdown) => {
-                    const didSave = await onAddChild(task.id, markdown);
-                    if (didSave) {
-                      setAddingChildTo(null);
-                    }
-                    return didSave;
-                  }}
-                  onBeginAddChild={() => beginAddingChild(task.id)}
-                  onBeginEdit={setEditingTask}
-                  onCancelAddChild={() => setAddingChildTo(null)}
-                  onDelete={(id) => {
-                    setEditingTask((current) => (current?.id === id ? null : current));
-                    setAddingChildTo((current) => (current === id ? null : current));
-                    return onDelete(id);
-                  }}
-                  onDragEnd={onDragEnd}
-                  onEdit={onEdit}
-                  onToggle={onToggle}
-                  onToggleExpanded={() => toggleCollapsed(task.id)}
-                />
-              );
-            })}
-          </ul>
-        </SortableContext>
-      </DndContext>
+                  return (
+                    <m.li
+                      key={task.id}
+                      className="task-motion-item"
+                      layout={isDraggingTask ? false : "position"}
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                      transition={{ opacity: MOTION_FAST, layout: MOTION_LAYOUT }}
+                    >
+                      <SortableTaskGroup
+                        task={task}
+                        children={children}
+                        editingTask={editingTask}
+                        expanded={expanded}
+                        isAddingChild={addingChildTo === task.id}
+                        isDraggingList={isDraggingTask}
+                        sensors={sensors}
+                        onAddChild={async (markdown) => {
+                          const didSave = await onAddChild(task.id, markdown);
+                          if (didSave) {
+                            setAddingChildTo(null);
+                          }
+                          return didSave;
+                        }}
+                        onBeginAddChild={() => beginAddingChild(task.id)}
+                        onBeginEdit={setEditingTask}
+                        onCancelAddChild={() => setAddingChildTo(null)}
+                        onDelete={(id) => {
+                          setEditingTask((current) => (current?.id === id ? null : current));
+                          setAddingChildTo((current) => (current === id ? null : current));
+                          return onDelete(id);
+                        }}
+                        onDragEnd={onDragEnd}
+                        onEdit={onEdit}
+                        onToggle={onToggle}
+                        onToggleExpanded={() => toggleCollapsed(task.id)}
+                      />
+                    </m.li>
+                  );
+                })}
+              </AnimatePresence>
+            </ul>
+          </SortableContext>
+        </DndContext>
+      </LayoutGroup>
 
       {rootTasks.length === 0 && <div className="empty-state">未登録</div>}
     </main>
@@ -1224,6 +1303,7 @@ function SortableTaskGroup({
   editingTask,
   expanded,
   isAddingChild,
+  isDraggingList,
   sensors,
   onAddChild,
   onBeginAddChild,
@@ -1240,6 +1320,7 @@ function SortableTaskGroup({
   editingTask: InlineEditTarget | null;
   expanded: boolean;
   isAddingChild: boolean;
+  isDraggingList: boolean;
   sensors: ReturnType<typeof useSensors>;
   onAddChild: (markdown: string) => boolean | Promise<boolean>;
   onBeginAddChild: () => void;
@@ -1260,9 +1341,12 @@ function SortableTaskGroup({
     transition: sortable.transition,
   };
   const completedChildren = children.filter((child) => child.done).length;
+  const shouldReduceMotion = useReducedMotion();
+  const revealTransition = shouldReduceMotion ? { duration: 0 } : MOTION_STANDARD;
+  const layoutRevealTransition = shouldReduceMotion ? { duration: 0 } : MOTION_LAYOUT;
 
   return (
-    <li
+    <div
       ref={sortable.setNodeRef}
       style={style}
       className={`task-group ${sortable.isDragging ? "is-dragging" : ""}`}
@@ -1282,38 +1366,79 @@ function SortableTaskGroup({
         onToggleExpanded={onToggleExpanded}
       />
 
-      {isAddingChild && (
-        <InlineSubtaskComposer onCancel={onCancelAddChild} onSave={onAddChild} />
-      )}
-
-      {children.length > 0 && expanded && (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
-          onDragEnd={onDragEnd}
-        >
-          <SortableContext
-            items={children.map((child) => child.id)}
-            strategy={verticalListSortingStrategy}
+      <AnimatePresence initial={false}>
+        {isAddingChild && (
+          <m.div
+            className="subtask-reveal"
+            initial={{ height: 0, opacity: 0, overflow: "hidden" }}
+            animate={{
+              height: "auto",
+              opacity: 1,
+              overflow: "hidden",
+              transitionEnd: { overflow: "visible" },
+            }}
+            exit={{ height: 0, opacity: 0, overflow: "hidden" }}
+            transition={revealTransition}
           >
-            <ul className="subtask-list">
-              {children.map((child) => (
-                <SortableChildTask
-                  key={child.id}
-                  task={child}
-                  editTarget={editingTask?.id === child.id ? editingTask : undefined}
-                  onBeginEdit={onBeginEdit}
-                  onDelete={onDelete}
-                  onEdit={onEdit}
-                  onToggle={onToggle}
-                />
-              ))}
-            </ul>
-          </SortableContext>
-        </DndContext>
-      )}
-    </li>
+            <InlineSubtaskComposer onCancel={onCancelAddChild} onSave={onAddChild} />
+          </m.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence initial={false}>
+        {children.length > 0 && expanded && (
+          <m.div
+            className="subtask-reveal"
+            initial={{ height: 0, opacity: 0, overflow: "hidden" }}
+            animate={{
+              height: "auto",
+              opacity: 1,
+              overflow: "hidden",
+              transitionEnd: { overflow: "visible" },
+            }}
+            exit={{ height: 0, opacity: 0, overflow: "hidden" }}
+            transition={layoutRevealTransition}
+          >
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
+              onDragEnd={onDragEnd}
+            >
+              <SortableContext
+                items={children.map((child) => child.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <ul className="subtask-list">
+                  <AnimatePresence initial={false} mode="popLayout">
+                    {children.map((child) => (
+                      <m.li
+                        key={child.id}
+                        className="subtask-item"
+                        layout={isDraggingList ? false : "position"}
+                        initial={{ opacity: 0, y: 5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -3 }}
+                        transition={{ opacity: MOTION_FAST, layout: MOTION_LAYOUT }}
+                      >
+                        <SortableChildTask
+                          task={child}
+                          editTarget={editingTask?.id === child.id ? editingTask : undefined}
+                          onBeginEdit={onBeginEdit}
+                          onDelete={onDelete}
+                          onEdit={onEdit}
+                          onToggle={onToggle}
+                        />
+                      </m.li>
+                    ))}
+                  </AnimatePresence>
+                </ul>
+              </SortableContext>
+            </DndContext>
+          </m.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
 
@@ -1342,7 +1467,7 @@ function SortableChildTask({
   };
 
   return (
-    <li ref={sortable.setNodeRef} style={style} className="subtask-item">
+    <div ref={sortable.setNodeRef} style={style}>
       <TaskRow
         task={task}
         childCount={0}
@@ -1356,7 +1481,7 @@ function SortableChildTask({
         onEdit={onEdit}
         onToggle={onToggle}
       />
-    </li>
+    </div>
   );
 }
 
@@ -1468,17 +1593,13 @@ function TaskRow({
         {childCount > 0 && (
           <button
             type="button"
-            className="disclosure-button"
+            className={`disclosure-button ${expanded ? "is-expanded" : ""}`}
             aria-label={expanded ? "子タスクを折りたたむ" : "子タスクを展開"}
             aria-expanded={expanded}
             title={expanded ? "折りたたむ" : "展開"}
             onClick={onToggleExpanded}
           >
-            {expanded ? (
-              <ChevronDown size={18} strokeWidth={2.2} />
-            ) : (
-              <ChevronRight size={18} strokeWidth={2.2} />
-            )}
+            <ChevronRight size={18} strokeWidth={2.2} />
           </button>
         )}
 
@@ -1630,6 +1751,7 @@ function ScheduleView({
   onToday: () => void;
 }) {
   const [editingItem, setEditingItem] = useState<InlineEditTarget | null>(null);
+  const [dateDirection, setDateDirection] = useState(0);
 
   useEffect(() => {
     if (editingItem && !items.some((item) => item.id === editingItem.id)) {
@@ -1637,38 +1759,74 @@ function ScheduleView({
     }
   }, [editingItem, items]);
 
+  const moveDate = (amount: number) => {
+    setEditingItem(null);
+    setDateDirection(amount < 0 ? -1 : 1);
+    onMoveDate(amount);
+  };
+
+  const goToday = () => {
+    const today = formatDate(new Date());
+    setEditingItem(null);
+    setDateDirection(today === selectedDate ? 0 : today < selectedDate ? -1 : 1);
+    onToday();
+  };
+
   return (
     <main className="workspace schedule-workspace" aria-label="時間割">
       <div className="schedule-toolbar">
-        <button type="button" className="date-nav-button" aria-label="前日" onClick={() => onMoveDate(-1)}>
+        <button type="button" className="date-nav-button" aria-label="前日" onClick={() => moveDate(-1)}>
           <ChevronLeft size={19} strokeWidth={2.5} />
         </button>
         <button
           type="button"
           className={`today-button ${isToday(selectedDate) ? "is-today" : ""}`}
-          onClick={onToday}
+          onClick={goToday}
         >
           {formatDayLabel(selectedDate)}
         </button>
-        <button type="button" className="date-nav-button" aria-label="翌日" onClick={() => onMoveDate(1)}>
+        <button type="button" className="date-nav-button" aria-label="翌日" onClick={() => moveDate(1)}>
           <ChevronRight size={19} strokeWidth={2.5} />
         </button>
       </div>
 
       <div className="schedule-board">
-        <ScheduleDay
-          currentSlot={currentSlot}
-          date={selectedDate}
-          duration={duration}
-          error={error}
-          items={items.filter((item) => item.date === selectedDate)}
-          editingItem={editingItem}
-          selectedHour={selectedHour}
-          onDelete={onDelete}
-          onBeginEdit={setEditingItem}
-          onEdit={onEdit}
-          onSelectSlot={onSelectSlot}
-        />
+        <AnimatePresence initial={false} mode="popLayout" custom={dateDirection}>
+          <m.div
+            key={selectedDate}
+            className="schedule-day-motion"
+            custom={dateDirection}
+            variants={{
+              enter: (direction: number) => ({
+                opacity: 0.68,
+                x: direction === 0 ? 0 : direction * 8,
+              }),
+              center: { opacity: 1, x: 0 },
+              exit: (direction: number) => ({
+                opacity: 0,
+                x: direction === 0 ? 0 : direction * -6,
+              }),
+            }}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={MOTION_STANDARD}
+          >
+            <ScheduleDay
+              currentSlot={currentSlot}
+              date={selectedDate}
+              duration={duration}
+              error={error}
+              items={items.filter((item) => item.date === selectedDate)}
+              editingItem={editingItem}
+              selectedHour={selectedHour}
+              onDelete={onDelete}
+              onBeginEdit={setEditingItem}
+              onEdit={onEdit}
+              onSelectSlot={onSelectSlot}
+            />
+          </m.div>
+        </AnimatePresence>
       </div>
     </main>
   );
@@ -1742,16 +1900,18 @@ function ScheduleDay({
           );
         })}
 
-        {sortedItems.map((item) => (
-          <ScheduleItemBlock
-            key={item.id}
-            item={item}
-            editTarget={editingItem?.id === item.id ? editingItem : undefined}
-            onBeginEdit={onBeginEdit}
-            onDelete={onDelete}
-            onEdit={onEdit}
-          />
-        ))}
+        <AnimatePresence initial={false}>
+          {sortedItems.map((item) => (
+            <ScheduleItemBlock
+              key={item.id}
+              item={item}
+              editTarget={editingItem?.id === item.id ? editingItem : undefined}
+              onBeginEdit={onBeginEdit}
+              onDelete={onDelete}
+              onEdit={onEdit}
+            />
+          ))}
+        </AnimatePresence>
       </div>
     </section>
   );
@@ -1778,10 +1938,14 @@ function ScheduleItemBlock({
   };
 
   return (
-    <article
+    <m.article
       className={`schedule-block ${isEditing ? "is-editing" : ""}`}
       style={style}
       title={formatRange(item.startHour, item.duration)}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={MOTION_FAST}
     >
       {isEditing ? (
         <CompactMarkdownEditor
@@ -1835,7 +1999,7 @@ function ScheduleItemBlock({
           </button>
         </>
       )}
-    </article>
+    </m.article>
   );
 }
 
@@ -2169,6 +2333,11 @@ export default function App() {
 
   const initialView = initialViewRef.current;
   const [mode, setMode] = useState<Mode>(initialView.mode);
+  const modeScrollPositionsRef = useRef<Record<Mode, number>>({
+    todo: 0,
+    schedule: 0,
+    note: 0,
+  });
   const [tasks, setTasks] = useState<Task[]>([]);
   const [scheduleItems, setScheduleItems] = useState<ScheduleItem[]>([]);
   const [noteMarkdown, setNoteMarkdown] = useState("");
@@ -3100,41 +3269,46 @@ export default function App() {
   const accountMessage = saveError || (mode === "note" && noteSaveError) ? "保存エラー" : undefined;
 
   return (
-    <div className={`app-shell mode-${mode}`}>
-      <ModeSwitch mode={mode} onChange={setMode} />
-      <AccountBar
-        message={accountMessage}
-        onSignOut={() => void signOut()}
-      />
+    <LazyMotion features={domAnimation} strict>
+      <MotionConfig reducedMotion="user">
+        <div className={`app-shell mode-${mode}`}>
+        <ModeSwitch mode={mode} onChange={setMode} />
+        <AccountBar
+          message={accountMessage}
+          onSignOut={() => void signOut()}
+        />
 
-      {mode === "todo" ? (
-        <TodoView
-          tasks={tasks}
-          storageScope={session.user.id}
-          onAddChild={addChildTask}
-          onClearDone={clearDone}
-          onDelete={deleteTask}
-          onDragEnd={(event) => void handleTaskDragEnd(event)}
-          onEdit={editTask}
-          onToggle={toggleTask}
-        />
-      ) : mode === "schedule" ? (
-        <ScheduleView
-          currentSlot={currentSlot}
-          duration={duration}
-          error={scheduleError}
-          items={scheduleItems}
-          selectedDate={selectedDate}
-          selectedHour={selectedHour}
-          onDelete={deleteScheduleItem}
-          onEdit={editScheduleItem}
-          onMoveDate={moveDate}
-          onSelectSlot={selectSlot}
-          onToday={goToday}
-        />
-      ) : (
-        <>
-          {USE_LEGACY_NOTE_EDITOR ? (
+        <ModePanel
+          key={`panel-${mode}`}
+          mode={mode}
+          scrollPositions={modeScrollPositionsRef.current}
+        >
+          {mode === "todo" ? (
+            <TodoView
+              tasks={tasks}
+              storageScope={session.user.id}
+              onAddChild={addChildTask}
+              onClearDone={clearDone}
+              onDelete={deleteTask}
+              onDragEnd={(event) => void handleTaskDragEnd(event)}
+              onEdit={editTask}
+              onToggle={toggleTask}
+            />
+          ) : mode === "schedule" ? (
+            <ScheduleView
+              currentSlot={currentSlot}
+              duration={duration}
+              error={scheduleError}
+              items={scheduleItems}
+              selectedDate={selectedDate}
+              selectedHour={selectedHour}
+              onDelete={deleteScheduleItem}
+              onEdit={editScheduleItem}
+              onMoveDate={moveDate}
+              onSelectSlot={selectSlot}
+              onToday={goToday}
+            />
+          ) : USE_LEGACY_NOTE_EDITOR ? (
             <LegacyNoteView
               markdown={noteMarkdown}
               saveError={noteSaveError}
@@ -3151,33 +3325,34 @@ export default function App() {
               onChange={updateNoteMarkdown}
             />
           )}
-        </>
-      )}
+        </ModePanel>
 
-      {mode !== "note" && (
-        <Composer
-          key={mode}
-          ariaLabel={mode === "todo" ? "タスク入力" : "時間割入力"}
-          error={composerError}
-          tools={
-            mode === "schedule" ? (
-              <button
-                type="button"
-                className="duration-button"
-                aria-label={`長さ ${duration}時間`}
-                title="長さ"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={cycleDuration}
-              >
-                <Clock3 size={18} strokeWidth={2.4} />
-                <span>{duration}h</span>
-              </button>
-            ) : undefined
-          }
-          placeholder={mode === "todo" ? "次にやること" : "予定を入力"}
-          onAdd={mode === "todo" ? addTask : addScheduleItem}
-        />
-      )}
-    </div>
+        {mode !== "note" && (
+          <Composer
+            key={`composer-${mode}`}
+            ariaLabel={mode === "todo" ? "タスク入力" : "時間割入力"}
+            error={composerError}
+            tools={
+              mode === "schedule" ? (
+                <button
+                  type="button"
+                  className="duration-button"
+                  aria-label={`長さ ${duration}時間`}
+                  title="長さ"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={cycleDuration}
+                >
+                  <Clock3 size={18} strokeWidth={2.4} />
+                  <span>{duration}h</span>
+                </button>
+              ) : undefined
+            }
+            placeholder={mode === "todo" ? "次にやること" : "予定を入力"}
+            onAdd={mode === "todo" ? addTask : addScheduleItem}
+          />
+        )}
+        </div>
+      </MotionConfig>
+    </LazyMotion>
   );
 }
